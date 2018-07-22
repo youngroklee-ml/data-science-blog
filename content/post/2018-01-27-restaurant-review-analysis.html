@@ -1,0 +1,683 @@
+---
+title: Restaurant Review Analysis
+author: Youngrok Lee
+date: '2018-01-27'
+slug: restaurant-review-analysis
+categories:
+  - text mining
+tags:
+  - review
+  - rvest
+  - tripadvisor
+  - web scraping
+---
+
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/jquery/jquery.min.js"></script>
+<script src="/rmarkdown-libs/datatables-binding/datatables.js"></script>
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.min.css" rel="stylesheet" />
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.extra.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/dt-core/js/jquery.dataTables.min.js"></script>
+
+
+<p>My decisions for restaurants heavily rely on ratings and reviews in <a href="https://www.tripadvisor.com/">TripAdvisor</a>. Usually I sort restaurants by ratings and look through one after another’s reviews. They are helpful but quite time consuming at the same time. Can I do a systematic approach to download reviews into my analytical platform and apply text mininig technique to extract information of interest from the reviews?</p>
+<div id="scraping-reviews-from-one-restaurant" class="section level1">
+<h1>Scraping reviews from one restaurant</h1>
+<p>First I needed to scrape review data from Tripadvisor website. Per each restaurant of interest, It was easy to scrape recent 5-10 reviews, but I did not have a clear idea of scraping all the reviews. Thankfully <a href="http://notesofdabbler.github.io/201408_hotelReview/scrapeTripAdvisor.html">someone</a> already tried to scrape hotel reviews, and R Stuido’s <a href="https://github.com/hadley/rvest">rvest</a> package makes the web scraping much easier to <a href="https://github.com/hadley/rvest/blob/master/demo/tripadvisor.R">code</a>.</p>
+<p>Let me scrape reviews for <a href="http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-OQ_Coffee_Co-Highland_Park_New_Jersey.html">OQ Coffee Co.</a>, where my wife and I frequently visit. As of 1/27/2018, two people sitting outside in main photo are my wife and myself! <img src="http://media-cdn.tripadvisor.com/media/photo-s/0b/db/32/c5/oq-coffee-worth-a-visit.jpg" alt="OQ Coffe Co. photo in TripAdvisor" /></p>
+<p>This coffee shop has only small number of reviews on TripAdvisor, but web scraping R script that I demonstrate in this post work for a restaurant having hundreds or thousands of reviews as well.</p>
+<div id="scrape-10-reviews-displayed-in-main-url" class="section level2">
+<h2>Scrape 10 reviews displayed in main URL</h2>
+<p>Let us start with a script to download 10 reviews appear on the first page of OQ Coffee Co., which are the most recent 10 reviews for the coffee shop. A specific URL needs to be known to scrape reviews, because this process starts with downloading page source of the URL. OQ Coffee Co.’s URL in TripAdivosr is <a href="http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-OQ_Coffee_Co-Highland_Park_New_Jersey.html" class="uri">http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-OQ_Coffee_Co-Highland_Park_New_Jersey.html</a>.</p>
+<pre class="r"><code>library(tidyverse)
+library(rvest)
+library(lubridate)
+
+geo_id &lt;- &quot;g46508&quot;
+destination_id &lt;- &quot;d4719489&quot;
+geo_name &lt;- &quot;Highland_Park_New_Jersey&quot;
+destination_name &lt;- &quot;OQ_Coffee_Co&quot;
+
+main_url &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                   paste(
+                    &quot;Restaurant_Review&quot;,
+                    geo_id,
+                    destination_id,
+                    &quot;Reviews&quot;,
+                    destination_name,
+                    geo_name,
+                    sep = &quot;-&quot;
+                   ),
+                   &quot;.html&quot;)
+
+getTripReview &lt;- function(url) {
+  reviews &lt;- url %&gt;%
+    read_html() %&gt;%
+    html_nodes(&quot;.review-container&quot;) 
+
+  id &lt;- reviews %&gt;%
+    html_attr(&quot;data-reviewid&quot;)
+
+  quote &lt;- reviews %&gt;%
+    html_node(&quot;.quote span&quot;) %&gt;%
+    html_text()
+
+  rating &lt;- reviews %&gt;%
+    html_node(&quot;.ui_bubble_rating&quot;) %&gt;%
+    html_attr(&quot;class&quot;) %&gt;%
+    gsub(&quot;ui_bubble_rating bubble_&quot;, &quot;&quot;, .) %&gt;%
+    as.integer() * 0.1
+
+  date &lt;- reviews %&gt;%
+    html_node(&quot;.rating .ratingDate&quot;) %&gt;%
+    html_attr(&quot;title&quot;) %&gt;%
+    strptime(&quot;%b %d, %Y&quot;) %&gt;%
+    as.character() %&gt;%
+    as.Date()
+
+  reviewtext &lt;- reviews %&gt;%
+    html_node(&quot;.entry .partial_entry&quot;) %&gt;%
+    html_text(trim=T)
+
+  return(tibble(id, quote, rating, date, reviewtext))
+}
+
+reviews &lt;- getTripReview(main_url)</code></pre>
+<div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","data":[["557217108","530192670","510126771","466502749","452905171","440740917","418482919","409046130","398901598","388441022"],["Cozy and Modern","Disgusting staff. Disgusting chai tea latte.","A favorite neighborhood hangout with a keen appreciation for their coffee!","Sunday drop in","The coffee shop of Highland Park","A nice place with unique coffee","Absolutely the best coffee in Jersey","Great coffee good atmosphere","Wonderful little coffee roaster and shop","Excellent third wave coffee shop"],[5,1,5,4,5,4,5,5,5,5],["2018-01-29","2017-10-05","2017-08-08","2017-03-12","2017-01-17","2016-11-28","2016-09-14","2016-08-22","2016-07-29","2016-07-02"],["While on the way to New York, I stopped by OQ to grab a Cortado. The service was quick, the barista was very friendly, and while busy, there was room to set up my laptop and work on some things. A large communal table was...More","I ordered a chai tea latte, it was terrible. I couldn't drink it because its strong ginger test. When I complain about it, the employee looked at me with disdain and said: this is not Starbucks! Sure, Starbucks is much better and employees are always...More","This is a great place to hang out with a laptop, stop by to pick up a drink, or talk with friends. There is a nice sound and feel to the space, with plenty of tables and an open room and bustle that invites conversation....More","The cappuccino is very good, and very consistent. They are friendly. Sometimes it can be like a silent religious meeting with everyone worshipping their Macs. They have rotating art on show, of varying quality.","OQ Coffee is my type of coffee house... great coffee and tea (brewed or bagged), good music, friendly and competent service, eclectic and rotating art (for sale), and good snacks. It isn't a good place for parties of more than a couple folks. It is...More","The place is great. Young pepole working on their computers. Not a place for a loud talk with your friends. A kind of a veganish place. They roast and make their own unique blends of coffee. I believe it's not for everyone's taste.","Right now I'm sitting at an outside table enjoying the coffee (and the warm breeze). The coffee is always superb, the owners friendly, and the atmosphere relaxed. They roast their own beans so I buy a bag each month so I can drink it at...More","The coffee is amazing. The staff are great. This is a good place to good place to go to work remotely as well.","OQ is a cute little coffee shop near Rutgers University. The staff are super friendly and even recommended a nice bagel shop in New Brunswick for us. We drank a Cortado each time we were there and were never let down. Definitely worth a visit...More","Small, but great coffee shop. Coffee is roasted on site. I had the Nitro Cold Brew, which was smooth and delicious, but also bought a pound of coffee which I am looking forward to. I'm very happy to have found a high quality coffee shop...More"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>id<\/th>\n      <th>quote<\/th>\n      <th>rating<\/th>\n      <th>date<\/th>\n      <th>reviewtext<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":2}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>The R script downloads 10 reviews since 2016-07-02. I defined a reusable function <em>getTripReview</em>, because next section requires a reusable function to download reviews from different URLs.</p>
+</div>
+<div id="scrape-entire-list-of-reviews" class="section level2">
+<h2>Scrape entire list of reviews</h2>
+<p>Previous section described how to download the latest 10 reviews. But there are more than 10 reviews, so I wrote the following script to scrape all reviews, not only the latest 10. Detailed steps are</p>
+<ol style="list-style-type: decimal">
+<li>Get total number of pages of reviews</li>
+<li>Generate URL of each page of review</li>
+<li>Downloads reviews from each page</li>
+</ol>
+<p>From previous section, we know one page of reviews contains 10 reviews. We can specify offset <em>X</em> by adding <strong>-or<em>X</em>-</strong> to URL, so we can scrape 10 reviews from the [<em>X</em>+1]-th latest review. Two example urls with offsets, 0 and 10, are as follows:</p>
+<ul>
+<li><a href="http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-or0-OQ_Coffee_Co-Highland_Park_New_Jersey.html" class="uri">http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-or0-OQ_Coffee_Co-Highland_Park_New_Jersey.html</a></li>
+<li><a href="http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-or10-OQ_Coffee_Co-Highland_Park_New_Jersey.html" class="uri">http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-or10-OQ_Coffee_Co-Highland_Park_New_Jersey.html</a></li>
+</ul>
+<pre class="r"><code>library(pbapply)
+
+geo_id &lt;- &quot;g46508&quot;
+destination_id &lt;- &quot;d4719489&quot;
+geo_name &lt;- &quot;Highland_Park_New_Jersey&quot;
+destination_name &lt;- &quot;OQ_Coffee_Co&quot;
+
+main_url &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                   paste(
+                    &quot;Restaurant_Review&quot;,
+                    geo_id,
+                    destination_id,
+                    &quot;Reviews&quot;,
+                    destination_name,
+                    geo_name,
+                    sep = &quot;-&quot;
+                   ),
+                   &quot;.html&quot;)
+
+page &lt;- main_url %&gt;%
+  read_html()
+
+total_page_number &lt;- page %&gt;%
+  html_node(&quot;.unified&quot;) %&gt;% 
+  html_nodes(&quot;.pageNum&quot;) %&gt;%
+  html_attr(&quot;data-page-number&quot;) %&gt;%
+  as.integer() %&gt;%
+  max()
+
+offset &lt;- 10*(c(1:total_page_number)-1)
+review_url_list &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+           paste(&quot;Restaurant_Review&quot;,
+                 geo_id,
+                 destination_id,
+                 &quot;Reviews&quot;,
+                 paste0(&quot;or&quot;, offset),
+                 destination_name,
+                 geo_name,
+                 sep = &quot;-&quot;),
+           &quot;.html&quot;)
+
+review_all &lt;- pblapply(review_url_list, getTripReview) %&gt;%
+  bind_rows()</code></pre>
+<p>Now we have 16 reviews since 2013-11-28. This is small numbers from 2 pages of reviews, but the script above is applicable without modification to restaurants with many pages of reviews; only URL needs to be specified for restaurant of interest.</p>
+</div>
+<div id="scraping-full-review-texts" class="section level2">
+<h2>Scraping full review texts</h2>
+<p>Unfortunately, review texts downloaded in previous sections are truncated version that contains only up to 200~300 characters, so we would not have full review text if original review text contains more than the truncation threshold, The following R scripts will provide entire review text rather than truncated version. This leverages review IDs downloaded in previous sections. For example, the most recent review ID is 557217108, and I generate URL for full review text as <a href="http://www.tripadvisor.com/ShowUserReviews-g46508-d4719489-r557217108-OQ_Coffee_Co-Highland_Park_New_Jersey.html" class="uri">http://www.tripadvisor.com/ShowUserReviews-g46508-d4719489-r557217108-OQ_Coffee_Co-Highland_Park_New_Jersey.html</a>. The review ID 557217108 appears in URL with prefix “r”. This URL provides not only full text of review 557217108 but also full text of four other latest reviews prior to review 557217108. The following R scripts download all reviews’ full texts on one URL.</p>
+<pre class="r"><code>review_id &lt;- &quot;530192670&quot;
+review_detail_url &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                              paste(&quot;ShowUserReviews&quot;,
+                                    geo_id,
+                                    destination_id,
+                                    paste0(&quot;r&quot;, review_id),
+                                    destination_name,
+                                    geo_name,
+                                    sep = &quot;-&quot;),
+                              &quot;.html&quot;)
+
+
+getTripFullReview &lt;- function(url) {
+  page &lt;- url %&gt;% read_html()
+  
+  reviews &lt;- page %&gt;% 
+    html_nodes(
+      xpath=&#39;(//div[@class=&quot;prw_rup prw_reviews_basic_review_hsx&quot;])&#39;
+      )
+  
+  id &lt;- reviews %&gt;% 
+    html_node(xpath=&#39;(div[@class=&quot;reviewSelector&quot;])&#39;) %&gt;% 
+    html_attr(&quot;data-reviewid&quot;)
+  
+  reviewtext &lt;- reviews %&gt;% 
+    html_node(&quot;.entry&quot;) %&gt;% 
+    html_node(&quot;p&quot;) %&gt;% 
+    html_text(trim=T)
+
+  return(tibble(id, reviewtext))
+}
+
+review_fulltext &lt;- getTripFullReview(review_detail_url)</code></pre>
+<div id="htmlwidget-2" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-2">{"x":{"filter":"none","data":[["530192670","510126771","466502749","452905171","440740917"],["I ordered a chai tea latte, it was terrible. I couldn't drink it because its strong ginger test. When I complain about it, the employee looked at me with disdain and said: this is not Starbucks! Sure, Starbucks is much better and employees are always polite.","This is a great place to hang out with a laptop, stop by to pick up a drink, or talk with friends. There is a nice sound and feel to the space, with plenty of tables and an open room and bustle that invites conversation. The coffee is custom roasted on site, and they have a broad enough menu to satisfy your taste without losing focus on the coffee. I'm also a fan of their matcha latte!","The cappuccino is very good, and very consistent. They are friendly. Sometimes it can be like a silent religious meeting with everyone worshipping their Macs. They have rotating art on show, of varying quality.","OQ Coffee is my type of coffee house... great coffee and tea (brewed or bagged), good music, friendly and competent service, eclectic and rotating art (for sale), and good snacks.It isn't a good place for parties of more than a couple folks. It is a favorite spot for students and academics, so expect a fair amount of both when Rutgers is in session. It isn't a large space, but it is setup efficiently to sit about twenty patrons comfortably.I love stopping by in the morning to work a bit on the laptop, read the newspaper and enjoy a nice cup of coffee.","The place is great. Young pepole working on their computers. Not a place for a loud talk with your friends. A kind of a veganish place. They roast and make their own unique blends of coffee. I believe it's not for everyone's taste."]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>id<\/th>\n      <th>reviewtext<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>To download full text for all reviews, we need to generate multiple URLs that we will scrape. Because 1 URL consists of 5 reviews, let us generate URL address by using review IDs for every fifth review ID after the first review ID in the dataset. Afterwards, apply function <em>getTripFullReview</em> to each generated URL and append the results into one data frame.</p>
+<pre class="r"><code>library(pbapply)
+
+review_ids &lt;- review_all$id # all review IDs
+sample_ids &lt;- review_ids[seq(1,length(review_ids),5)] # 1st, 6th, 11th, 16th ... review IDs
+
+review_detail_url_list &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+           paste(&quot;ShowUserReviews&quot;,
+                 geo_id,
+                 destination_id,
+                 &quot;Reviews&quot;,
+                 paste0(&quot;r&quot;, sample_ids),
+                 destination_name,
+                 geo_name,
+                 sep = &quot;-&quot;),
+           &quot;.html&quot;)
+
+
+fullreview_all &lt;- pblapply(review_detail_url_list, getTripFullReview) %&gt;%
+  bind_rows()</code></pre>
+<p>Let us save the review data frame into local machine.</p>
+<pre class="r"><code>library(feather)
+fullreview_all &lt;- review_all %&gt;%
+  select(-reviewtext) %&gt;%
+  inner_join(fullreview_all)
+write_feather(fullreview_all, &#39;review_text.feather&#39;)</code></pre>
+</div>
+<div id="scrape-aspect-based-ratings" class="section level2">
+<h2>Scrape aspect-based ratings</h2>
+<p>URL with full review text in previous section also provides aspect-based rating scores, i.e. scores based on service, food, value, atmosphhere, etc. Not every reviwers provides these aspect-based ratings, but we may still find interesting relations between review texts and aspect-based ratings. So I built another R script to download the aspect-based ratings:</p>
+<pre class="r"><code>library(pbapply)
+library(stringr)
+
+extractAspectRating &lt;- function(node) {
+  id &lt;- node %&gt;% 
+    html_node(xpath=&#39;(div[@class=&quot;reviewSelector&quot;])&#39;) %&gt;% 
+    html_attr(&quot;data-reviewid&quot;)
+  
+  aspect &lt;- node %&gt;% 
+    html_nodes(&quot;.recommend-answer&quot;) %&gt;% 
+    html_node(&quot;.recommend-description&quot;) %&gt;% 
+    html_text()
+  
+  rating &lt;- node %&gt;% 
+    html_nodes(&quot;.recommend-answer&quot;) %&gt;%
+    html_node(&quot;.ui_bubble_rating&quot;) %&gt;%
+    html_attr(&quot;class&quot;) %&gt;%
+    gsub(&quot;ui_bubble_rating bubble_&quot;, &quot;&quot;, .) %&gt;%
+    as.integer() * 0.1
+  
+  num_aspect = length(aspect)
+  
+  return(tibble(id=rep(id,num_aspect), aspect=aspect, aspect_rating=rating))
+}
+
+getTripAspectRating &lt;- function(url) {
+  reviews &lt;- url %&gt;% 
+    read_html() %&gt;%
+    html_nodes(xpath=&#39;(//div[@class=&quot;prw_rup prw_reviews_basic_review_hsx&quot;])&#39;) %&gt;%
+    lapply(extractAspectRating) %&gt;% 
+    bind_rows()
+  
+  return(reviews)
+}
+
+aspect_rating_all &lt;- pblapply(review_detail_url_list, getTripAspectRating) %&gt;%
+  bind_rows()</code></pre>
+<div id="htmlwidget-3" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-3">{"x":{"filter":"none","data":[["530192670","530192670","530192670","452905171","452905171","452905171","398901598","398901598","263056315","263056315","263056315","260019896","260019896","260019896","186199443","186199443","186199443","186199443"],["Value","Service","Food","Value","Service","Food","Value","Service","Value","Service","Food","Value","Atmosphere","Service","Value","Atmosphere","Service","Food"],[1,1,1,4,4,4,5,5,5,5,5,3,4,4,4,5,5,5]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>id<\/th>\n      <th>aspect<\/th>\n      <th>aspect_rating<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":2}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>Let us save aspect-based ratings as separate file:</p>
+<pre class="r"><code>library(feather)
+write_feather(aspect_rating_all, &#39;aspect_rating.feather&#39;)</code></pre>
+</div>
+</div>
+<div id="scrape-reviews-from-all-restaurant-in-specific-geolocation" class="section level1">
+<h1>Scrape reviews from all restaurant in specific geolocation</h1>
+<p>Imagine you travel to a city and want to find dining places in advance. There are tens or hundreds of restaurants, and it will be quite time consuming if you research a restaurant one after another. Now let us download reviews for multiple restaurants in a city of interest.</p>
+<div id="scrape-restaurant-lists" class="section level2">
+<h2>Scrape restaurant lists</h2>
+<p>Searching restaurnts by city name results in a list of restaurants, e.g. <a href="http://www.tripadvisor.com/Restaurants-g46508-Highland_Park_New_Jersey.html">Restaurants in Highland Park</a>. R script below scrapes all restaurants appears on the list. This list shows price level of each restaurant and cusine types as well, so I scrape such additional information. Because one restaurant may belong to multiple cusine types (e.g. Cafe + American), I construct two tables from the list</p>
+<ul>
+<li>restaurant_price: one row per restaurant with price level information in addition to other general information (geo location and restaurant IDs and names)</li>
+<li>restaurant_type: one row per a combination of restaurant and cuisine type</li>
+</ul>
+<pre class="r"><code>library(stringr)
+library(feather)
+
+geo_id &lt;- &quot;g46508&quot;
+geo_name &lt;- &quot;Highland_Park_New_Jersey&quot;
+
+geolocation_url &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                          paste(&quot;Restaurants&quot;,
+                                geo_id,
+                                geo_name,
+                                sep = &quot;-&quot;),
+                          &quot;.html&quot;)
+
+page &lt;- geolocation_url %&gt;%
+  read_html()
+
+total_page_number &lt;- page %&gt;%
+  html_nodes(xpath = &#39;(//a[@class=&quot;pageNum taLnk&quot;])&#39;) %&gt;% 
+  html_attr(&quot;data-page-number&quot;) %&gt;%
+  as.integer() %&gt;%
+  max()
+
+geolocation_url_list &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                          paste(&quot;Restaurants&quot;,
+                                geo_id,
+                                paste0(&quot;oa&quot;, 30*((1:total_page_number)-1)),
+                                geo_name,
+                                sep = &quot;-&quot;),
+                          &quot;.html&quot;)
+
+getRestaurantList &lt;- function(url) {
+  download.file(url, destfile = &quot;tmp.dat&quot;, quiet = TRUE)
+  page &lt;- read_html(&quot;tmp.dat&quot;)
+
+  restaurants &lt;- page %&gt;%
+    html_nodes(&#39;.listing&#39;)
+    
+  df1 &lt;- restaurants %&gt;%
+    html_nodes(xpath=&#39;(//a[@class=&quot;property_title&quot;])&#39;) %&gt;%
+    html_attr(&quot;href&quot;) %&gt;% 
+    str_replace_all(c(&quot;/&quot; = &quot;&quot;, &quot;.html&quot; = &quot;&quot;)) %&gt;%
+    str_split(&quot;-&quot;, simplify = TRUE) %&gt;%
+    as_data_frame() %&gt;%
+    select(-1, -4)
+  
+  names(df1) &lt;- c(&quot;geo_id&quot;, &quot;destination_id&quot;, &quot;destination_name&quot;, &quot;geo_name&quot;)
+  
+  df1$restaurant_name &lt;- restaurants %&gt;%
+    html_nodes(xpath=&#39;(//a[@class=&quot;property_title&quot;])&#39;) %&gt;%
+    html_text(trim = TRUE)
+  
+  getPriceLevel &lt;- function(node) {
+    price_level &lt;- &quot;unknown&quot;
+    if(!is.na(cuisines &lt;- node %&gt;% html_node(&quot;.cuisines&quot;))) {
+      if(!is.na(prices &lt;- cuisines %&gt;% html_node(xpath=&#39;span[@class=&quot;item price&quot;]&#39;))) {
+        price_level &lt;- prices %&gt;% html_text()
+      }
+    }
+    return(price_level)
+  }
+  
+  df1$price_level &lt;- restaurants %&gt;%
+    lapply(getPriceLevel) %&gt;%
+    unlist()
+
+  getCuisineTypes &lt;- function(node) {
+    cuisine_types &lt;- NULL
+    if(!is.na(cuisines &lt;- node %&gt;% html_node(&quot;.cuisines&quot;))) {
+      cuisine_types &lt;- cuisines %&gt;% 
+        html_nodes(xpath=&#39;a[@class=&quot;item cuisine&quot;]&#39;) %&gt;% 
+        html_text()
+    }
+    num_cuisine_types &lt;- length(cuisine_types)
+    return(list(num_cuisine_types = num_cuisine_types, 
+                cuisine_types = cuisine_types))
+  }
+
+  tmp &lt;- restaurants %&gt;%
+    lapply(getCuisineTypes)
+  
+  num_cuisine_types &lt;- sapply(tmp, function(x) x$num_cuisine_types)
+  cuisine_types &lt;- sapply(tmp, function(x) x$cuisine_types) %&gt;% unlist() 
+  
+  df2 &lt;- data_frame(destination_id = rep(df1$destination_id, num_cuisine_types),
+                    cuisine_types = cuisine_types)
+
+  return(list(destination_price=df1, destination_type=df2))
+}
+
+restaurants &lt;- geolocation_url_list %&gt;%
+  pblapply(getRestaurantList)
+
+restaurant_price &lt;- restaurants %&gt;%
+  lapply(function(x) x$destination_price) %&gt;%
+  bind_rows()
+
+restaurant_type &lt;- restaurants %&gt;%
+  lapply(function(x) x$destination_type) %&gt;%
+  bind_rows()
+
+write_feather(restaurant_price, &#39;restaurant_price.feather&#39;)
+write_feather(restaurant_type, &#39;restaurant_type.feather&#39;)</code></pre>
+</div>
+<div id="scrape-reviews-of-each-restaurant" class="section level2">
+<h2>Scrape reviews of each restaurant</h2>
+<p>For each restaurant I scrape all fulltext reviews by reusing R scripts that I showed above for one restaurant. I constructed a function <em>getRestaurantReview</em> that includes several steps of review scraping:</p>
+<ul>
+<li>General main URL for a restaurant by using geolocation ID/name and destination ID/name</li>
+<li>Get entire review list of the restaurant</li>
+<li>Get full review text for each review</li>
+</ul>
+<pre class="r"><code>library(tidyverse)
+library(rvest)
+library(lubridate)
+library(stringr)
+library(pbapply)
+library(feather)
+
+getTripReview &lt;- function(url) {
+  download.file(url, destfile = &quot;tmp.dat&quot;, quiet = TRUE)
+  
+  reviews &lt;- read_html(&quot;tmp.dat&quot;) %&gt;%
+    html_nodes(&quot;.review-container&quot;) 
+
+  id &lt;- reviews %&gt;%
+    html_attr(&quot;data-reviewid&quot;)
+
+  quote &lt;- reviews %&gt;%
+    html_node(&quot;.quote span&quot;) %&gt;%
+    html_text()
+
+  rating &lt;- reviews %&gt;%
+    html_node(&quot;.ui_bubble_rating&quot;) %&gt;%
+    html_attr(&quot;class&quot;) %&gt;%
+    gsub(&quot;ui_bubble_rating bubble_&quot;, &quot;&quot;, .) %&gt;%
+    as.integer() * 0.1
+
+  date &lt;- reviews %&gt;%
+    html_node(&quot;.rating .ratingDate&quot;) %&gt;%
+    html_attr(&quot;title&quot;) %&gt;%
+    strptime(&quot;%b %d, %Y&quot;) %&gt;%
+    as.character() %&gt;%
+    as.Date()
+
+  return(tibble(id, quote, rating, date))
+}
+
+getTripFullReview &lt;- function(url) {
+  download.file(url, destfile = &quot;tmp.dat&quot;, quiet = TRUE)
+
+  page &lt;- read_html(&quot;tmp.dat&quot;)
+  
+  reviews &lt;- page %&gt;% 
+    html_nodes(
+      xpath=&#39;(//div[@class=&quot;prw_rup prw_reviews_basic_review_hsx&quot;])&#39;
+      )
+  
+  id &lt;- reviews %&gt;% 
+    html_node(xpath=&#39;(div[@class=&quot;reviewSelector&quot;])&#39;) %&gt;% 
+    html_attr(&quot;data-reviewid&quot;)
+  
+  reviewtext &lt;- reviews %&gt;% 
+    html_node(&quot;.entry&quot;) %&gt;% 
+    html_node(&quot;p&quot;) %&gt;% 
+    html_text(trim=T)
+
+  return(tibble(id, reviewtext))
+}
+
+getRestaurantReview &lt;- function(restaurant) {
+  geo_id &lt;- restaurant[1]
+  destination_id &lt;- restaurant[2]
+  destination_name &lt;- restaurant[3]
+  geo_name &lt;- restaurant[4]
+  
+  cat(destination_name, &#39;: &#39;)
+
+  main_url &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                     paste(
+                       &quot;Restaurant_Review&quot;,
+                       geo_id,
+                       destination_id,
+                       &quot;Reviews&quot;,
+                       destination_name,
+                       geo_name,
+                       sep = &quot;-&quot;
+                     ),
+                     &quot;.html&quot;)
+
+  download.file(main_url, destfile = &quot;tmp.dat&quot;, quiet = TRUE)
+
+  page &lt;- read_html(&quot;tmp.dat&quot;)
+  
+  total_page_number &lt;- page %&gt;%
+    html_node(&quot;.unified&quot;) %&gt;% 
+    html_nodes(&quot;.pageNum&quot;) %&gt;%
+    html_attr(&quot;data-page-number&quot;) %&gt;%
+    as.integer() %&gt;%
+    max(1)
+  
+  offset &lt;- 10*(c(1:total_page_number)-1)
+  review_url_list &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                            paste(&quot;Restaurant_Review&quot;,
+                                  geo_id,
+                                  destination_id,
+                                  &quot;Reviews&quot;,
+                                  paste0(&quot;or&quot;, offset),
+                                  destination_name,
+                                  geo_name,
+                                  sep = &quot;-&quot;),
+                            &quot;.html&quot;)
+  
+  review_all &lt;- pblapply(review_url_list, getTripReview) %&gt;%
+    bind_rows()
+  
+  review_ids &lt;- review_all$id # all review IDs
+  sample_ids &lt;- review_ids[seq(1,length(review_ids),5)] # 1st, 6th, 11th, 16th ... review IDs
+  
+  cat(length(review_ids), &#39;reviews\n&#39;)
+
+  review_detail_url_list &lt;- paste0(&quot;http://www.tripadvisor.com/&quot;,
+                                   paste(&quot;ShowUserReviews&quot;,
+                                         geo_id,
+                                         destination_id,
+                                         &quot;Reviews&quot;,
+                                         paste0(&quot;r&quot;, sample_ids),
+                                         destination_name,
+                                         geo_name,
+                                         sep = &quot;-&quot;),
+                                   &quot;.html&quot;)
+  
+  fullreview_all &lt;- pblapply(review_detail_url_list, getTripFullReview) %&gt;%
+    bind_rows()
+  
+  fullreview_all &lt;- review_all %&gt;%
+    inner_join(fullreview_all)
+  
+  return(fullreview_all)
+}</code></pre>
+<p>By applying <em>getRestaurantReview</em> function to all restaurant whose cuisine type is ‘Cafe’, I scraped all reviews for Cafe’s in Highland Park area.</p>
+<pre class="r"><code>library(tidyverse)
+library(feather)
+
+restaurant_price &lt;- read_feather(&#39;restaurant_price.feather&#39;)
+restaurant_type &lt;- read_feather(&#39;restaurant_type.feather&#39;)
+
+cafe_reviews &lt;- restaurant_price %&gt;% 
+  inner_join(restaurant_type %&gt;% 
+               filter(cuisine_types == &quot;Cafe&quot;)) %&gt;%
+  apply(1, getRestaurantReview)</code></pre>
+<pre><code>## OQ_Coffee_Co : 16 reviews
+## Dish_Cafe : 29 reviews
+## Paris_Baguette : 49 reviews
+## Starbucks : 15 reviews
+## Hidden_Grounds_Coffee : 16 reviews
+## T_I_Fusion : 2 reviews
+## Panera_Bread : 31 reviews
+## Bagel_Market : 11 reviews
+## Starbucks : 13 reviews
+## Panera_Bread : 16 reviews
+## Cafe_Paris : 55 reviews
+## Brewed_Awakening_Coffeehouse : 25 reviews
+## Dunkin_Donuts : 6 reviews
+## The_Coffee_House : 18 reviews
+## Panera_Bread : 28 reviews
+## Starbucks : 12 reviews
+## Zoup : 5 reviews
+## Panera_Bread_Cafe : 18 reviews
+## I_Luv_Bubble_Tea_at_Joy_Bubble_Tea : 2 reviews
+## Liberty_Bagel_Cafe : 24 reviews
+## La_Crepe_French_Bakery_Cafe : 31 reviews</code></pre>
+<pre class="r"><code>cafe_review_counts &lt;- cafe_reviews %&gt;%
+  sapply(function(x) nrow(x))
+
+cafe_df &lt;- restaurant_price %&gt;% 
+  inner_join(restaurant_type %&gt;% 
+               filter(cuisine_types == &quot;Cafe&quot;)) %&gt;%
+  mutate(review_count = cafe_review_counts)
+
+cafe_review_df &lt;- cafe_reviews %&gt;%
+  bind_rows() %&gt;%
+  bind_cols(data_frame(destination_id = rep(cafe_df$destination_id, cafe_review_counts)))
+
+write_feather(cafe_df, &quot;cafe_df.feather&quot;)
+write_feather(cafe_review_df, &quot;cafe_review_df.feather&quot;)</code></pre>
+</div>
+</div>
+<div id="review-analysis" class="section level1">
+<h1>Review analysis</h1>
+<p>Let us analyze what people say about each cafe.</p>
+<div id="sentence-sentiment-scores" class="section level2">
+<h2>Sentence sentiment scores</h2>
+<p>First I tokenize each review into sentences and calculate sentiment polarity by using <em>sentimentr</em> package. Before calculating polarity, I removed cafe name from reviews, because cafe name itself possibly express positive emotion (e.g. “Joy”&quot; Bubble Tea) that is irrelavent to how a reviewer feels.</p>
+<pre class="r"><code>library(tidyverse)
+library(tidytext)
+library(sentimentr)
+library(stringr)
+library(feather)
+
+cafe_df &lt;- read_feather(&quot;cafe_df.feather&quot;)
+cafe_review_df &lt;- read_feather(&quot;cafe_review_df.feather&quot;)
+
+review_sentences &lt;- cafe_review_df %&gt;%
+  select(-quote) %&gt;%
+  unnest_tokens(reviewsentence, reviewtext, token = sentimentr::get_sentences, to_lower = TRUE) %&gt;%
+  inner_join(cafe_df, by=&quot;destination_id&quot;) %&gt;%
+  mutate(reviewsentence = str_replace_all(reviewsentence, str_to_lower(restaurant_name), &quot;&quot;)) %&gt;%
+  bind_cols(sentiment(cafe_review_df$reviewtext))</code></pre>
+<p>The sentiment scores do not always make sense. They are calculated based on what kinds of words were used and whether there is negation, but still the calculation does not sufficiently aware of context. For example, “I’ll definitely be stopping here” means a reviewer loved the cafe, but the sentiment score is negative; -0.36 because of word “stopping” is associated with score -0.4 in sentiment dictionary <em>lexicon::hash_sentiment_jockers</em>. Also, one review for OQ Coffee Co. says “Sure, Starbucks is much better and employees are always polite.”, which means that OQ Coffee Co. was not satisfiable compared to Starbucks. But the sentence shows strong positive sentiment 0.739973, because of words “better” and “polite”. The sentiment scoring did not understand that the reviewer was talking about another cafe.</p>
+<p>Although the sentiment scores do not always represent directionally correct impressions, they still on average.</p>
+<pre class="r"><code>avg_polarity_by_rating &lt;- review_sentences %&gt;%
+  group_by(rating) %&gt;%
+  summarize(
+    n_sentences = n(),
+    avg_sentiment = mean(sentiment)
+    ) %&gt;%
+  ungroup() %&gt;%
+  arrange(-rating)</code></pre>
+<div id="htmlwidget-4" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-4">{"x":{"filter":"none","data":[[5,4,3,2,1],[722,731,323,144,201],[0.31,0.28,0.2,0.02,0.01]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>rating<\/th>\n      <th>n_sentences<\/th>\n      <th>avg_sentiment<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":[0,1,2]}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>The higher review rating scores, the higher average sentence polarity scores from the reviews. So let me take a polarity score from <em>sentimentr</em> default setting, although there is an opportunity to improve it.</p>
+</div>
+<div id="extract-sentences-of-interest" class="section level2">
+<h2>Extract sentences of interest</h2>
+<p>Now let me filter words that provides useful context. First I replace each word in a sentence with its lemma to consider variants of a word as the same word (e.g. “stopping” is changed to “stop”). Afterwords, filter sentences that contain a word of interest. Because I am interested in coffee quality, I will filter sentences that include a word “coffee”.</p>
+<pre class="r"><code>library(textstem)
+
+review_coffee &lt;- review_sentences %&gt;%
+  select(-destination_name,-geo_name,-price_level,-cuisine_types,-geo_id) %&gt;%
+  mutate(reviewsentence = lemmatize_strings(reviewsentence)) %&gt;%
+  unnest_tokens(reviewword, reviewsentence) %&gt;%
+  filter(reviewword == &quot;coffee&quot;) %&gt;%
+  distinct(id, destination_id, sentence_id) %&gt;%
+  inner_join(review_sentences)</code></pre>
+<div id="htmlwidget-5" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-5">{"x":{"filter":"none","data":[["OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","OQ Coffee Co.","Dish Cafe","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Paris Baguette","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Hidden Grounds Coffee","Panera Bread","Panera Bread","Panera Bread","Panera Bread","Bagel Market","Bagel Market","Bagel Market","Bagel Market","Bagel Market","Bagel Market","Bagel Market","Bagel Market","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Panera Bread","Cafe Paris","Cafe Paris","Cafe Paris","Cafe Paris","Cafe Paris","Cafe Paris","Cafe Paris","Cafe Paris","Cafe Paris","Cafe Paris","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Brewed Awakening Coffeehouse","Dunkin Donuts","Dunkin Donuts","Dunkin Donuts","Dunkin Donuts","Dunkin Donuts","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","The Coffee House","Panera Bread","Panera Bread","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Starbucks","Panera Bread Cafe","Liberty Bagel Cafe","Liberty Bagel Cafe","Liberty Bagel Cafe","Liberty Bagel Cafe","La Crepe French Bakery &amp; Cafe","La Crepe French Bakery &amp; Cafe","La Crepe French Bakery &amp; Cafe","La Crepe French Bakery &amp; Cafe","La Crepe French Bakery &amp; Cafe"],["the coffee is custom roasted on site, and they have a broad enough menu to satisfy your taste without losing focus on the coffee.","oq coffee is my type of coffee house...","great coffee and tea (brewed or bagged), good music, friendly and competent service, eclectic and rotating art (for sale), and good snacks.","i love stopping by in the morning to work a bit on the laptop, read the newspaper and enjoy a nice cup of coffee.","they roast and make their own unique blends of coffee.","right now i'm sitting at an outside table enjoying the coffee (and the warm breeze).","the coffee is always superb, the owners friendly, and the atmosphere relaxed.","i'm just finishing up a bag of single origin coffee from yemen.","the coffee is amazing.","oq is a cute little coffee shop near rutgers university.","small, but great coffee shop.","coffee is roasted on site.","i had the nitro cold brew, which was smooth and delicious, but also bought a pound of coffee which i am looking forward to.","i'm very happy to have found a high quality coffee shop as an alternative to all chains in the area.","a step up from the mass market coffee shop.","apart from awesome ingredients, this place uses a special technique with beakers, a unique filter and hand pour technique to make the coffee.","coffee for me and it is damn good.","best cup of coffee i have had in a long while.","finally new jersey has good coffee.","i love the staff, the atmosphere, the snacks and most importantly the coffee, the hot chocolate and the tea.","if you looking for quality expresso or some speciality coffee that never heard of, then this ur place.","steady refills of coffee capped off a nice breakfast.","good coffee.","coffee is good, too.","they have good coffee.","the place is a nice cozy french self serve style cafe in edison nj , serving french patisserie with an american touch , very reasonable prices and a lot of delicious options of desserts and coffees .","i love coming here for fresh brewed coffee (many to choose from) and a delicious, warm, and tasty danish or muffin in the morning.","lots of pastry selections, teas, coffees, and iced teas.","this is an asian pastry bakery with coffee.","while they have a wide variety of coffees, i had the house coffee and it was under $2.00 and delicious.","coffee to go with the extravagant pastries make a stop here take a bite out of your wallet.","there is a great selection of pastries and the coffees are delicious.","i also like their coffee.","my husband says their coffee is not the greatest.","coffee, cakes, teas, pastries and much more.","they serve a wide variety of coffees and non-baked desserts.","their coffee product were ok.","the place is spacious and high ceilings which makes a great place to have coffee and dessert with a friend.desserts: it has been trial and error for me so far.","coffee on the other hand, they are ok.","coffee is good, and not expensive.","i love coming here for coffee and a breakfast bun.","a small coffee is $1.50 most pastries are $1.50 to $2.25.","nothing else much to say except if one can go into a chain coffee house and find it consistent with all the other of the chain's coffee houses, how much more of an accolade can i give?","coffee is always dependably delicious.","relax &amp; enjoy~tasty treats to accompany your tea or coffee.","i stopped here for some coffee.","the coffee was okay and the service was okay too.","my wife says it is like eating coffee beans.","coffee was just ok and service was very slow and we ended up spending way more than we wanted to.","popped in for a coffee to catch up with a friend.","the snack foods were decent and the coffee was quite good.","the interior is maybe a bit expansive so it doesn't have the quiet intimate feel of a coffee shop, but it's still a nice enough place to have a chat.","you could miss this coffee shop because of its hidden location, but once you know about it you'll never be able to keep it's a secret.","hidden grounds is a small coffee shop where you can get your coffee fix and just hang out or get some work done.","one of the best strong and hot coffees i've had in a long time.","i drink only almond milk, with 2 double shots of espresso, and the coffee in this place is great!","it's a great place to meet a friend, study, or stop in for a cup of coffee.","if you're not one for a cup of coffee (like me), they have other yummy options like masala chai.","2+ weeks exploring the area and this is the first place i can say i've truly enjoyed the coffee.","for coffee alone (especially to-go), i think this is a great stop, albeit quite pricey.","i love coffee and coffee houses .","i just love, love, love coffee .","baked goods , coffee beans , loose tea, sandwiches , bagels , and of course coffee !","i'm sure some of it was the unawareness of the students hogging more space then they needed using free wifi , while drinking a single cup of coffee .","i guess i just want to sit down to a clean table after i drop over $20 on two coffees and two sandwiches .","i was desperate for a decent breakfast at about 9am, so ended up walking the many blocks up the hill from the train station in search of this coffee house.","they have communal tables, and the people who settled in after me all had books so either they knew they had a long wait for their repast, or were more likely students with all the time in the world to hang in a pleasantly appointed coffee shop.","i had a costa rican coffee which was out of this world and she had a cappuccino that she loved.","the staff is super friendly and the coffee shop is so comfy.","it is run down and dirty and not a pleasant place to chill with some bread and coffee.","coffee is good.","sometime it is hard to find a table.soup,salad and pastry and coffee good choice","excellent coffee..","but, it does deliver big-time on their main product, bagels, and their coffee...","gotta have good coffee when you're dealing in bagels.","i don't give out 5's often, but this place has been consistently providing me with the best breakfast sandwich and coffee i have had in years and it has become a routine for me to hit it every friday morning and sometimes on a sunday, too.","local bagel and coffee hangout.","many varieties of coffee.","they have combo dealks of bagels or eggs with coffee.","the owner goes in around 5am every day and personally bakes all the bagels, croissants, coffee cakes and other pastries.","when he opens at 6am, he offers breakfast sandwiches (eggs, various meats, cheeses), straightforward (i.e., not fancy) breakfast platters including generous servings of bacon or sausage and hash browns right off the grill, as well as very good coffee (hard to find).","literally 2 cups of coffee.","floors were filthy, counter was filthy, went to out milk in coffee..","this is a big , every single table was taken by those people that buy one cup of coffee and the work there all day, spread out so no one else can use the table and they give you dirty looks when you look to sit.","aside from all of that, the coffee was warm and took forever..","this coffee shop is very expensive with their coffee and there sandwiches and snacks are also very expensive.","overall, the quality of work in the drinks is still set at high with the backing of the high grade of  coffee and equipment used to prepare it.","the drive through can make you loose your mind, but hey that's why we all drink $5 coffees anyway.","this store open about 2 years ago or maybe longer and ever since it is my place for coffee.","love to sit outside and spend time with hubby just sipping my coffee...","friday afternoon stop for coffee and cake pop.","i stopped here for coffee when i was in the area.","the service and coffee were okay.","the problem arises from the rutgers students who buy a coffee then stay for hours using the wifi for their computers.","coffee was great, everything else mediocre","good service and atmosphere, definitely a place to stop by, whether for an actual meal, snack, coffee, or dessert.","the coffees, crepes, salads are all delicious.","where the locals go for excellent coffee and crepes.","my faves are the omelettes and the coffees are good too.","decent coffee.","we wanted to get out for a bit on a weekend night, and did an internet search for coffee houses/desserts.","the original idea was a coffee and a dessert...","this wound up being two coffees each, and four desserts between the two of us!!!","when the crepes came out, we figured if they were half as good as the coffees, we were going to be very happy!!","they were selling a lot of coffee when i was there.","this coffee shop not only has great coffee and teas, but also some great menu choices.","this place is serving mexican style breakfast they are so kind and big worm smile on thor face :) that coffee is really goodmy chorizo omelette burritos was tasty but they have to do something to potatoes it wasn't bad actually much better than diners .","this is a favorite for coffee, pastries, and now lunch!","the coffee isn't great, but it is good.","the coffee and omelettes were delicious.","they have very good coffee and some of their omelets are very good.","the coffee and tea was wonderful.","this little gem in downtown metuchen, nj is a great place to grab a coffee or breakfast or lunch or just a sweet treat!","brewed awakening is the cheers of metuchen, but for breakfastthe coffee is good, but they offer great food.","nice place to meet a friend, have a cup of tea or coffee with a pastry.","brewed awakening used to be a decent local coffee shop.","the coffee wasn’t ready until 7:15 and this is becoming the norm.","and if the doors open at 7am, the coffee should be ready at 7am, not 7:15.","the good: the coffee is tasty and i greatly enjoyed my breakfast (omelet).","a bit random for a coffee house, but i'll give it a whirl.","i have never had that happen at the coffee house in edison.","metuchen needs a new coffee house, or people need to go to coffee house on amboy ave in edison.","staff was extremely unfriendly and coffee wasn't that great.","wouldn't bother going here again because the prices are expensive for not very good coffee.","we have had coffee at brewed awakening in the past but not in a few years.","brewed awakening has the typical coffee house standards, newspapers &amp; magazines to flip through while having your coffee.","i had a big mug of coffee along with oatmeal with raisins &amp; cream and a delicious blueberry scone on the side, my better half had a big mug of coffee along with two eggsâ€™ over with home fries &amp; a sausage pattie and a cranberry scone on the side.","stopped in and got 2 coffees- hot coffee was good but the iced latte wasnt prepared as requested- it was bitter and i asked for lite &amp; sweet.","hot fresh coffee, breakfast sangy and the best great service around.","coffee is always hot and good and they package the donuts so they come home with frosting intact..","coffee is on the expensive side, but strong the way i like it.","the coffee is good and as the place is busy there is good turnover and the coffee is fresh.","friendly service and good coffee.","this is a nice little coffee house i've had a meeting or two at.","the coffee is good, the staff is friendly and the prices are reasonable.","very nice coffee shop with indoor and outdoor seating.","i don't drink coffee but i love this place for the atmosphere, tea drinks, lunch and desserts.","stopped by this morning for a cup of coffee and a croissant, which was very good.","and the coffee -- by illy -- is great.","it needs a bit more energy, a bit more grunge, to become what it clearly wants to be -- a five-star coffee shop.","love this shop, great selection s of coffee items,.","my ladies group of 5 meet for coffee often.","it was too late in the day for coffee for me, but the cashier recommended their bai coconut drink - yummy!","i tried my husband's iced coffee...","the best cups of coffee i have ever had in nj were made at .","ben is a superb coffee maker.","if you want to get the best coffee in the area, this is the place.","delicious coffee and bagel with cream cheese.","great coffee, atmosphere, staff!","have been quite a few times and have never been disappointed with the deserts or coffee (haven't tried the sandwiches) they only use illy coffee which is delicious if you like a bold coffee and they have many varieties and blends.","good coffee and fast service.","the coffee was really good."," may have lot of locations, this is specially the best coffee barista in somerset.","you can see every time you go (if you are regular like me) you will find same set of people at times everyday having coffee &amp; hanging out.","typical great coffee, etc., spot with excellent service and  menu and prices.","stopped in here for a coffee and some wifi to update my ios on my macbook for the new beta release.","gets very busy at times, but most of the time they can handle it pretty well (depends on who's behind the coffee bar!","overall, this location needs work on their people-friendly skills and lack the perfection of the everyday coffee goer.","warm and friendly place for a coffee every evening!","i love  blended coffee drinks, so i will seek out the nearest  location at any city i visit.","the store at cedar grove center in somerset is on my commute to work and, therefore, my most frequent morning stop when i don't make my own coffee at home.","everything is always yummy and i've found it's the perfect place to meet my friends because we can sit as long as we wish without being bothered and it doesn't matter if you only order coffee or a full meal.","coffee is also good and the fairly inexpensive.","we enjoy eggs/susage/homefries, and coffee, always consistent.","you could have a full breakfast with coffee, orange juice, eggs with bacon.","the coffee was average, the girls working behind the counter friendly, the bagels really good.","they also make a good cup of coffee!","you can enjoy conversation with your friend with nice hot coffee !!!","we were lucky that they served the coffee in ceramic mugs.","french music is playing, you are enjoying delicious crepes and good cup of dark roast coffee.","this is such a quaint place for coffee and crepes."],[0.12,0,1.03,0.38,0.19,0.56,0.65,0,0.25,0.09,0.55,0,0.43,0.65,0,0.42,0,0.15,0.8,0.38,0,0.57,0.53,0.38,0.38,0.57,0.66,0.1,0.04,0.17,-0.14,0.29,0.22,-0.17,0,0.08,0,0.26,0,0.41,0.43,0,0.35,0.67,0.05,-0.16,0,0.17,-0.1,0.24,0.68,-0.1,-0.05,-0.05,0.2,0.24,0.28,0.41,0.57,-0.37,0.31,0.92,0.38,0.1,0.16,-0.05,0.07,0.11,0.72,-0.04,0.43,0.26,0.71,0.33,0.25,0.59,0,0,0,0,-0.33,0,-0.29,0.18,0.14,-0.12,0.09,-0.06,0,0.21,-0.14,-0.12,0,-0.16,-0.1,0.33,0.38,0.33,0.23,0.35,0,0.2,-0.13,0.44,0,0.29,0.77,0.47,0.48,0.2,0.95,0.31,0.4,1.34,0.35,0.16,-0.24,-0.62,1.28,0,0,0.18,-0.47,0.22,0,0,0.26,0.29,0.56,0.24,0.62,0.46,0.67,0.03,0.55,0.3,1.15,0.24,0.19,0.38,0.42,0,0.67,0,0.12,0.41,0.13,0.19,0.5,0.39,0.34,0.6,0.13,0.05,0.42,0.09,1.13,0,0.42,0.26,-0.09,0.39,0.62,0.59,0.33,0.61,0.27,0.54,0.23,0.5,0.16]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>restaurant_name<\/th>\n      <th>reviewsentence<\/th>\n      <th>sentiment<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":2}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>Sentiment scores of the sentences do not seem represent impression only on coffee, because one sentence may have more than one aspect. For example, “great coffee and tea, good music, friendly and competent service, eclectic and rotating art, and good snacks” includes multiple aspects in one sentence: coffee, tea, music, service, art, and snacks. Also the sentiment scores do not always reasonably represent reviewer’s impression. “I stopped here for some coffee” is definitely neutral without any emotional and/or judgemental expression, but the sentiment is negatively scored (-0.1632993) because of the word “stopped”.</p>
+<p>Despite such imperfection, I think the computed sentiment scores provide fairly reasonable average impression on coffee quality for each coffee shop.</p>
+<pre class="r"><code>cafe_coffee_sentiment_df &lt;- review_coffee %&gt;% 
+  group_by(destination_id, restaurant_name) %&gt;%
+  summarize(coffee_sentence_count = n(),
+            avg_coffee_sentiment = mean(sentiment)) %&gt;%
+  ungroup() %&gt;%
+  arrange(-avg_coffee_sentiment) %&gt;%
+  mutate(rank_coffee = row_number())
+
+cafe_avg_rating_df &lt;- cafe_review_df %&gt;%
+  group_by(destination_id) %&gt;%
+  summarize(review_count = n(),
+            avg_cafe_rating = mean(rating)) %&gt;%
+  ungroup() %&gt;%
+  arrange(-avg_cafe_rating) %&gt;%
+  mutate(rank_cafe = row_number())
+
+cafe_rating_merged &lt;- cafe_coffee_sentiment_df %&gt;%
+  inner_join(cafe_avg_rating_df)</code></pre>
+<div id="htmlwidget-6" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-6">{"x":{"filter":"none","data":[["Dish Cafe","Liberty Bagel Cafe","Panera Bread","Dunkin Donuts","Panera Bread Cafe","The Coffee House","Panera Bread","La Crepe French Bakery &amp; Cafe","OQ Coffee Co.","Brewed Awakening Coffeehouse","Starbucks","Hidden Grounds Coffee","Paris Baguette","Cafe Paris","Starbucks","Bagel Market","Starbucks","Panera Bread"],[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],[1,4,2,5,1,18,4,5,21,23,9,22,20,10,5,8,12,1],[0.57,0.54,0.47,0.43,0.39,0.35,0.34,0.34,0.32,0.28,0.27,0.22,0.21,0.2,0.18,0.1,-0.01,-0.16],[5,4,18,6,10,1,12,20,2,17,15,8,7,13,9,16,21,14]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>restaurant_name<\/th>\n      <th>rank_coffee<\/th>\n      <th>sentence_cn<\/th>\n      <th>sentiment<\/th>\n      <th>rank_cafe<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":[1,2,3,4]}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>By looking at average sentiment scores of review sentences that contain word “coffee”, Dish Cafe seemed to be the best coffee shop with the highest average sentiment score 0.5666667. This restaurant was actually 5 based on overall average rating. Does it mean that Dish Cafe has the greatest coffee although some other menu items or aspects are not the greatest? Not necessarily! By looking at number of review sentences that contain word “coffee”, Dish Cafe got only 1 sentence that reviewed their coffee:</p>
+<div id="htmlwidget-7" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-7">{"x":{"filter":"none","data":[["Dish Cafe"],["steady refills of coffee capped off a nice breakfast."],[0.57]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>restaurant_name<\/th>\n      <th>reviewsentence<\/th>\n      <th>sentiment<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":2}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>Does it sufficiently support an argument that Dish Cafe is the best coffee place? I believe not. The sentence “steady refills of coffee capped off a nice breakfast” would mean that the service (i.e. refill) was nice, but not necessarily coffee itself.</p>
+<p>So, how can we find more believable best coffee place? One quick tweak is using damped means like <span class="math display">\[\frac{\sum_{s}r_{s} + k\mu}{n + k}\]</span> where <span class="math inline">\(n\)</span> is the number of sentence, <span class="math inline">\(r_{s}\)</span> is a sentiment of sentence <span class="math inline">\(s\)</span>, <span class="math inline">\(\mu\)</span> represents average sentence sentiment, and <span class="math inline">\(k\)</span> is pre-determined parameter that controls strength of evidence required. Here let us use <span class="math inline">\(k = 5\)</span>, which means that we assume 5 sentences with average sentiment are given to every cafe by default, and observed review sentences in TripAdvisor are evidence that each cafe is off from average. Let us apply the same method to explicit rating on cafe as well. For <span class="math inline">\(\mu\)</span>, we use observed coffee sentences sentiment average 0.2542708 and observed cafe rating average 3.9763033.</p>
+<pre class="r"><code>k &lt;- 5
+
+cafe_rating_damped &lt;- cafe_rating_merged %&gt;%
+  mutate(mu_coffee_sentiment = mean(review_coffee$sentiment),
+         mu_cafe_rating = mean(cafe_review_df$rating)) %&gt;%
+  mutate(damped_coffee_sentiment = 
+           (coffee_sentence_count * avg_coffee_sentiment
+            + k * mu_coffee_sentiment) / (coffee_sentence_count + k),
+         damped_cafe_rating = 
+           (review_count * avg_cafe_rating
+            + k * mu_cafe_rating) / (review_count + k)) %&gt;%
+  mutate(rank_coffee = rank(-damped_coffee_sentiment),
+         rank_cafe = rank(-damped_cafe_rating)) %&gt;%
+  arrange(rank_coffee)</code></pre>
+<div id="htmlwidget-8" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-8">{"x":{"filter":"none","data":[["Liberty Bagel Cafe","Dunkin Donuts","The Coffee House","Panera Bread","Dish Cafe","OQ Coffee Co.","La Crepe French Bakery &amp; Cafe","Panera Bread","Panera Bread Cafe","Brewed Awakening Coffeehouse","Starbucks","Hidden Grounds Coffee","Cafe Paris","Paris Baguette","Starbucks","Panera Bread","Bagel Market","Starbucks"],[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],[4,5,18,2,1,21,5,4,1,23,9,22,10,20,5,1,8,12],[0.38,0.34,0.33,0.32,0.31,0.3,0.3,0.29,0.28,0.27,0.26,0.23,0.22,0.22,0.22,0.18,0.16,0.07],[3,6,1,16,4,2,17,10,9,15,13,7,12,5,8,11,14,18]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>restaurant_name<\/th>\n      <th>rank_coffee<\/th>\n      <th>sentence_cn<\/th>\n      <th>sentiment<\/th>\n      <th>rank_cafe<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":[1,2,3,4]}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>Hmm.. the ranking seems to get more reasonable, but still cafes with few review sentences related to coffee are highly ranked based on coffee related sentiment, which is questionable. I think it may be because the sample mean of sentiment does not represent underlying true mean sentiment. Maybe the underlying mean sentiment is quite neutral, which is 0. So let me try to recalculated damped means by using <span class="math inline">\(\mu = 0\)</span> for coffee sentiment, and <span class="math inline">\(\mu = 3\)</span> for explicit cafe rating.</p>
+<pre class="r"><code>k &lt;- 5
+
+cafe_rating_damped &lt;- cafe_rating_merged %&gt;%
+  mutate(mu_coffee_sentiment = 0,
+         mu_cafe_rating = 3) %&gt;%
+  mutate(damped_coffee_sentiment = 
+           (coffee_sentence_count * avg_coffee_sentiment
+            + k * mu_coffee_sentiment) / (coffee_sentence_count + k),
+         damped_cafe_rating = 
+           (review_count * avg_cafe_rating
+            + k * mu_cafe_rating) / (review_count + k)) %&gt;%
+  mutate(rank_coffee = rank(-damped_coffee_sentiment),
+         rank_cafe = rank(-damped_cafe_rating)) %&gt;%
+  arrange(rank_coffee)</code></pre>
+<div id="htmlwidget-9" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-9">{"x":{"filter":"none","data":[["The Coffee House","OQ Coffee Co.","Liberty Bagel Cafe","Brewed Awakening Coffeehouse","Dunkin Donuts","Hidden Grounds Coffee","Starbucks","La Crepe French Bakery &amp; Cafe","Paris Baguette","Panera Bread","Cafe Paris","Panera Bread","Dish Cafe","Starbucks","Bagel Market","Panera Bread Cafe","Starbucks","Panera Bread"],[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],[18,21,4,23,5,22,9,5,20,4,10,2,1,5,8,1,12,1],[0.28,0.26,0.24,0.23,0.22,0.18,0.17,0.17,0.17,0.15,0.14,0.13,0.09,0.09,0.06,0.06,-0.01,-0.03],[1,2,4,13,11,6,14,17,5,10,8,15,3,9,16,7,18,12]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>restaurant_name<\/th>\n      <th>rank_coffee<\/th>\n      <th>sentence_cn<\/th>\n      <th>sentiment<\/th>\n      <th>rank_cafe<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":[1,2,3,4]}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>Now the ranking looks more reasonable to me. Top 3 cafes from based on coffee related sentiment are also top 3 cafes based on explicit rating.</p>
+<ul>
+<li>The Coffee House is ranked at topmost. This cafe also shows the highest average TripAdvisor rating both before and after damped means calculation. I have never tried this place, but I think I will definitely try!</li>
+<li>OQ Coffee Co., my and my wife’s favorite place, is second ranked! This place also shows the second highest average TripAdvisor rating both before and after damped means calculation. I know this place is dedicated to coffee, so it makes sense that this cafe is highly ranked regarding coffee quality if TripAdvisor rating is high.</li>
+<li>Liberty Bagel Cafe is highly ranked even though relatively small number of reviews mentioned coffee. It would mean that this place is not as much popular as other cafes, but people who tried this place were very satisfied. I have never tried this cafe, but I may in future.</li>
+<li>Brewed Awakening Coffeehouse highly ranked based on coffee related reviews, but overall explicit rating about this cafe is not great. It may mean that coffee quality is good, but some other aspects are not such good. It would be interesting to look at sentiment for other aspects like location and service.</li>
+<li>Paris Baguette’s coffee ranking is not as high as explicit rating ranking. I think this place has great bakery items, but coffee may not as great as their bakery.</li>
+<li>Dish Cafe is ranked low even though their only one coffee related review got strongly positive score. I do not want to take a risk; my decision would not rely on a single review, so this ranking helps me.</li>
+</ul>
+</div>
+<div id="conclusions" class="section level2">
+<h2>Conclusions</h2>
+<p>From this analysis, I found two places that I want to try: The Coffee House and Liberty Bagel Cafe. I hope I like those two places; otherwise, I should revise the scoring method later. :)</p>
+<p>Damped means are easy quick tweaks, but one downside is that it is very sensitive to parameter <span class="math inline">\(\mu\)</span> as we saw above. The metric would also be sensitive to selection of <span class="math inline">\(k\)</span>. There would be more sophisticated methods like lower bound of score confidence interval.</p>
+<p>The analysis above was based on hard filter whether a sentence contains word “coffee”. But there may be other sentences mentioning “espresso”, “cafe latte”, “nitro cold brew”, etc. Scoring how much relevant each sentence is to coffee would give better picture to score cafes based on coffee quality. Some text mining techniques like word2vec may help.</p>
+<p>Also, for sentences that contain multiple aspects, it would be great if we can extract only coffee relevant part. Another possible approach is extract multiple aspects and distribute sentiment score equally so that each aspect (e.g. coffee) get only partial score of sentence sentiment.</p>
+</div>
+</div>

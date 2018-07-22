@@ -1,0 +1,824 @@
+---
+title: Restaurant Review Analysis
+author: Youngrok Lee
+date: '2018-01-27'
+slug: restaurant-review-analysis
+categories:
+  - text mining
+tags:
+  - review
+  - rvest
+  - tripadvisor
+  - web scraping
+---
+
+```{r load_library, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(rvest)
+library(lubridate)
+```
+
+
+My decisions for restaurants heavily rely on ratings and reviews in [TripAdvisor](https://www.tripadvisor.com/). Usually I sort restaurants by ratings and look through one after another's reviews. They are helpful but quite time consuming at the same time. Can I do a systematic approach to download reviews into my analytical platform and apply text mininig technique to extract information of interest from the reviews?
+
+
+# Scraping reviews from one restaurant
+
+First I needed to scrape review data from Tripadvisor website. Per each restaurant of interest, It was easy to scrape recent 5-10 reviews, but I did not have a clear idea of scraping all the reviews. Thankfully [someone](http://notesofdabbler.github.io/201408_hotelReview/scrapeTripAdvisor.html) already tried to scrape hotel reviews, and R Stuido's [rvest](https://github.com/hadley/rvest) package makes the web scraping much easier to [code](https://github.com/hadley/rvest/blob/master/demo/tripadvisor.R).
+
+Let me scrape reviews for [OQ Coffee Co.](http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-OQ_Coffee_Co-Highland_Park_New_Jersey.html), where my wife and I frequently visit. As of 1/27/2018, two people sitting outside in main photo are my wife and myself!
+![OQ Coffe Co. photo in TripAdvisor](http://media-cdn.tripadvisor.com/media/photo-s/0b/db/32/c5/oq-coffee-worth-a-visit.jpg)
+
+This coffee shop has only small number of reviews on TripAdvisor, but web scraping R script that I demonstrate in this post work for a restaurant having hundreds or thousands of reviews as well.
+
+## Scrape 10 reviews displayed in main URL
+
+Let us start with a script to download 10 reviews appear on the first page of OQ Coffee Co., which are the most recent 10 reviews for the coffee shop. A specific URL needs to be known to scrape reviews, because this process starts with downloading page source of the URL. OQ Coffee Co.'s URL in TripAdivosr is [http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-OQ_Coffee_Co-Highland_Park_New_Jersey.html](http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-OQ_Coffee_Co-Highland_Park_New_Jersey.html). 
+
+```{r review_count, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(rvest)
+library(lubridate)
+
+geo_id <- "g46508"
+destination_id <- "d4719489"
+geo_name <- "Highland_Park_New_Jersey"
+destination_name <- "OQ_Coffee_Co"
+
+main_url <- paste0("http://www.tripadvisor.com/",
+                   paste(
+                    "Restaurant_Review",
+                    geo_id,
+                    destination_id,
+                    "Reviews",
+                    destination_name,
+                    geo_name,
+                    sep = "-"
+                   ),
+                   ".html")
+
+getTripReview <- function(url) {
+  reviews <- url %>%
+    read_html() %>%
+    html_nodes(".review-container") 
+
+  id <- reviews %>%
+    html_attr("data-reviewid")
+
+  quote <- reviews %>%
+    html_node(".quote span") %>%
+    html_text()
+
+  rating <- reviews %>%
+    html_node(".ui_bubble_rating") %>%
+    html_attr("class") %>%
+    gsub("ui_bubble_rating bubble_", "", .) %>%
+    as.integer() * 0.1
+
+  date <- reviews %>%
+    html_node(".rating .ratingDate") %>%
+    html_attr("title") %>%
+    strptime("%b %d, %Y") %>%
+    as.character() %>%
+    as.Date()
+
+  reviewtext <- reviews %>%
+    html_node(".entry .partial_entry") %>%
+    html_text(trim=T)
+
+  return(tibble(id, quote, rating, date, reviewtext))
+}
+
+reviews <- getTripReview(main_url)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(stringr)
+reviews %>% 
+  mutate(reviewtext = str_replace(reviewtext, "\n", " ")) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+The R script downloads `r reviews %>% nrow()` reviews since `r reviews %>% summarize(min(date))`.  I defined a reusable function *getTripReview*, because next section requires a reusable function to download reviews from different URLs.
+
+
+## Scrape entire list of reviews
+
+Previous section described how to download the latest 10 reviews. But there are more than 10 reviews, so I wrote the following script to scrape all reviews, not only the latest 10. Detailed steps are
+
+1. Get total number of pages of reviews
+2. Generate URL of each page of review
+3. Downloads reviews from each page
+
+From previous section, we know one page of reviews contains 10 reviews. We can specify offset *X* by adding **-or*X*-** to URL, so we can scrape 10 reviews from the [*X*+1]-th latest review. Two example urls with offsets, 0 and 10, are as follows:
+
+* <http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-or0-OQ_Coffee_Co-Highland_Park_New_Jersey.html>
+* <http://www.tripadvisor.com/Restaurant_Review-g46508-d4719489-Reviews-or10-OQ_Coffee_Co-Highland_Park_New_Jersey.html>
+
+
+```{r review_list, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(pbapply)
+
+geo_id <- "g46508"
+destination_id <- "d4719489"
+geo_name <- "Highland_Park_New_Jersey"
+destination_name <- "OQ_Coffee_Co"
+
+main_url <- paste0("http://www.tripadvisor.com/",
+                   paste(
+                    "Restaurant_Review",
+                    geo_id,
+                    destination_id,
+                    "Reviews",
+                    destination_name,
+                    geo_name,
+                    sep = "-"
+                   ),
+                   ".html")
+
+page <- main_url %>%
+  read_html()
+
+total_page_number <- page %>%
+  html_node(".unified") %>% 
+  html_nodes(".pageNum") %>%
+  html_attr("data-page-number") %>%
+  as.integer() %>%
+  max()
+
+offset <- 10*(c(1:total_page_number)-1)
+review_url_list <- paste0("http://www.tripadvisor.com/",
+           paste("Restaurant_Review",
+                 geo_id,
+                 destination_id,
+                 "Reviews",
+                 paste0("or", offset),
+                 destination_name,
+                 geo_name,
+                 sep = "-"),
+           ".html")
+
+review_all <- pblapply(review_url_list, getTripReview) %>%
+  bind_rows()
+```
+
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(stringr)
+review_all %>% 
+  mutate(reviewtext = str_replace(reviewtext, "\n", " ")) %>%
+  arrange(date) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+Now we have `r review_all %>% nrow()` reviews since `r review_all %>% summarize(min(date))`. This is small numbers from `r total_page_number` pages of reviews, but the script above is applicable without modification to restaurants with many pages of reviews; only URL needs to be specified for restaurant of interest.
+
+
+## Scraping full review texts
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+most_recent_review_id <- review_all %>% slice(1) %>% select(id) %>% as.character()
+```
+
+
+Unfortunately, review texts downloaded in previous sections are truncated version that contains only up to 200~300 characters, so we would not have full review text if original review text contains more than the truncation threshold, The following R scripts will provide entire review text rather than truncated version. This leverages review IDs downloaded in previous sections. For example, the most recent review ID is `r most_recent_review_id`, and I generate URL for full review text as 
+`r paste0("http://www.tripadvisor.com/",
+          paste("ShowUserReviews",
+                 geo_id,
+                 destination_id,
+                 paste0("r", most_recent_review_id),
+                 destination_name,
+                 geo_name,
+                 sep = "-"),
+          ".html")`.
+The review ID `r most_recent_review_id` appears in URL with prefix "r". This URL provides not only full text of review `r most_recent_review_id` but also full text of four other latest reviews prior to review `r most_recent_review_id`. The following R scripts download all reviews' full texts on one URL.
+
+
+```{r review_fulltext, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+review_id <- "530192670"
+review_detail_url <- paste0("http://www.tripadvisor.com/",
+                              paste("ShowUserReviews",
+                                    geo_id,
+                                    destination_id,
+                                    paste0("r", review_id),
+                                    destination_name,
+                                    geo_name,
+                                    sep = "-"),
+                              ".html")
+
+
+getTripFullReview <- function(url) {
+  page <- url %>% read_html()
+  
+  reviews <- page %>% 
+    html_nodes(
+      xpath='(//div[@class="prw_rup prw_reviews_basic_review_hsx"])'
+      )
+  
+  id <- reviews %>% 
+    html_node(xpath='(div[@class="reviewSelector"])') %>% 
+    html_attr("data-reviewid")
+  
+  reviewtext <- reviews %>% 
+    html_node(".entry") %>% 
+    html_node("p") %>% 
+    html_text(trim=T)
+
+  return(tibble(id, reviewtext))
+}
+
+review_fulltext <- getTripFullReview(review_detail_url)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(stringr)
+review_fulltext %>% 
+  mutate(reviewtext = str_replace(reviewtext, "\n", " ")) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+To download full text for all reviews, we need to generate multiple URLs that we will scrape. Because 1 URL consists of 5 reviews, let us generate URL address by using review IDs for every fifth review ID after the first review ID in the dataset. Afterwards, apply function *getTripFullReview* to each generated URL and append the results into one data frame.
+
+```{r review_fulltext_all, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(pbapply)
+
+review_ids <- review_all$id # all review IDs
+sample_ids <- review_ids[seq(1,length(review_ids),5)] # 1st, 6th, 11th, 16th ... review IDs
+
+review_detail_url_list <- paste0("http://www.tripadvisor.com/",
+           paste("ShowUserReviews",
+                 geo_id,
+                 destination_id,
+                 "Reviews",
+                 paste0("r", sample_ids),
+                 destination_name,
+                 geo_name,
+                 sep = "-"),
+           ".html")
+
+
+fullreview_all <- pblapply(review_detail_url_list, getTripFullReview) %>%
+  bind_rows()
+```
+
+
+Let us save the review data frame into local machine.
+
+```{r save_reviews, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(feather)
+fullreview_all <- review_all %>%
+  select(-reviewtext) %>%
+  inner_join(fullreview_all)
+write_feather(fullreview_all, 'review_text.feather')
+```
+
+
+
+## Scrape aspect-based ratings
+
+URL with full review text in previous section also provides aspect-based rating scores, i.e. scores based on service, food, value, atmosphhere, etc. Not every reviwers provides these aspect-based ratings, but we may still find interesting relations between review texts and aspect-based ratings. So I built another R script to download the aspect-based ratings:
+
+```{r aspect_ratings, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(pbapply)
+library(stringr)
+
+extractAspectRating <- function(node) {
+  id <- node %>% 
+    html_node(xpath='(div[@class="reviewSelector"])') %>% 
+    html_attr("data-reviewid")
+  
+  aspect <- node %>% 
+    html_nodes(".recommend-answer") %>% 
+    html_node(".recommend-description") %>% 
+    html_text()
+  
+  rating <- node %>% 
+    html_nodes(".recommend-answer") %>%
+    html_node(".ui_bubble_rating") %>%
+    html_attr("class") %>%
+    gsub("ui_bubble_rating bubble_", "", .) %>%
+    as.integer() * 0.1
+  
+  num_aspect = length(aspect)
+  
+  return(tibble(id=rep(id,num_aspect), aspect=aspect, aspect_rating=rating))
+}
+
+getTripAspectRating <- function(url) {
+  reviews <- url %>% 
+    read_html() %>%
+    html_nodes(xpath='(//div[@class="prw_rup prw_reviews_basic_review_hsx"])') %>%
+    lapply(extractAspectRating) %>% 
+    bind_rows()
+  
+  return(reviews)
+}
+
+aspect_rating_all <- pblapply(review_detail_url_list, getTripAspectRating) %>%
+  bind_rows()
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+aspect_rating_all %>% 
+  DT::datatable(rownames=FALSE)
+```
+
+Let us save aspect-based ratings as separate file:
+```{r save_aspect_ratings, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(feather)
+write_feather(aspect_rating_all, 'aspect_rating.feather')
+```
+
+
+
+# Scrape reviews from all restaurant in specific geolocation
+
+Imagine you travel to a city and want to find dining places in advance. There are tens or hundreds of restaurants, and it will be quite time consuming if you research a restaurant one after another. Now let us download reviews for multiple restaurants in a city of interest. 
+
+## Scrape restaurant lists
+
+Searching restaurnts by city name results in a list of restaurants, e.g. [Restaurants in Highland Park](http://www.tripadvisor.com/Restaurants-g46508-Highland_Park_New_Jersey.html). R script below scrapes all restaurants appears on the list. This list shows price level of each restaurant and cusine types as well, so I scrape such additional information. 
+Because one restaurant may belong to multiple cusine types (e.g. Cafe + American), I construct two tables from the list
+
+- restaurant_price: one row per restaurant with price level information in addition to other general information (geo location and restaurant IDs and names)
+- restaurant_type: one row per a combination of restaurant and cuisine type
+
+```{r restaurant_list, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(stringr)
+library(feather)
+
+geo_id <- "g46508"
+geo_name <- "Highland_Park_New_Jersey"
+
+geolocation_url <- paste0("http://www.tripadvisor.com/",
+                          paste("Restaurants",
+                                geo_id,
+                                geo_name,
+                                sep = "-"),
+                          ".html")
+
+page <- geolocation_url %>%
+  read_html()
+
+total_page_number <- page %>%
+  html_nodes(xpath = '(//a[@class="pageNum taLnk"])') %>% 
+  html_attr("data-page-number") %>%
+  as.integer() %>%
+  max()
+
+geolocation_url_list <- paste0("http://www.tripadvisor.com/",
+                          paste("Restaurants",
+                                geo_id,
+                                paste0("oa", 30*((1:total_page_number)-1)),
+                                geo_name,
+                                sep = "-"),
+                          ".html")
+
+getRestaurantList <- function(url) {
+  download.file(url, destfile = "tmp.dat", quiet = TRUE)
+  page <- read_html("tmp.dat")
+
+  restaurants <- page %>%
+    html_nodes('.listing')
+    
+  df1 <- restaurants %>%
+    html_nodes(xpath='(//a[@class="property_title"])') %>%
+    html_attr("href") %>% 
+    str_replace_all(c("/" = "", ".html" = "")) %>%
+    str_split("-", simplify = TRUE) %>%
+    as_data_frame() %>%
+    select(-1, -4)
+  
+  names(df1) <- c("geo_id", "destination_id", "destination_name", "geo_name")
+  
+  df1$restaurant_name <- restaurants %>%
+    html_nodes(xpath='(//a[@class="property_title"])') %>%
+    html_text(trim = TRUE)
+  
+  getPriceLevel <- function(node) {
+    price_level <- "unknown"
+    if(!is.na(cuisines <- node %>% html_node(".cuisines"))) {
+      if(!is.na(prices <- cuisines %>% html_node(xpath='span[@class="item price"]'))) {
+        price_level <- prices %>% html_text()
+      }
+    }
+    return(price_level)
+  }
+  
+  df1$price_level <- restaurants %>%
+    lapply(getPriceLevel) %>%
+    unlist()
+
+  getCuisineTypes <- function(node) {
+    cuisine_types <- NULL
+    if(!is.na(cuisines <- node %>% html_node(".cuisines"))) {
+      cuisine_types <- cuisines %>% 
+        html_nodes(xpath='a[@class="item cuisine"]') %>% 
+        html_text()
+    }
+    num_cuisine_types <- length(cuisine_types)
+    return(list(num_cuisine_types = num_cuisine_types, 
+                cuisine_types = cuisine_types))
+  }
+
+  tmp <- restaurants %>%
+    lapply(getCuisineTypes)
+  
+  num_cuisine_types <- sapply(tmp, function(x) x$num_cuisine_types)
+  cuisine_types <- sapply(tmp, function(x) x$cuisine_types) %>% unlist() 
+  
+  df2 <- data_frame(destination_id = rep(df1$destination_id, num_cuisine_types),
+                    cuisine_types = cuisine_types)
+
+  return(list(destination_price=df1, destination_type=df2))
+}
+
+restaurants <- geolocation_url_list %>%
+  pblapply(getRestaurantList)
+
+restaurant_price <- restaurants %>%
+  lapply(function(x) x$destination_price) %>%
+  bind_rows()
+
+restaurant_type <- restaurants %>%
+  lapply(function(x) x$destination_type) %>%
+  bind_rows()
+
+write_feather(restaurant_price, 'restaurant_price.feather')
+write_feather(restaurant_type, 'restaurant_type.feather')
+```
+
+
+## Scrape reviews of each restaurant
+
+For each restaurant I scrape all fulltext reviews by reusing R scripts that I showed above for one restaurant. I constructed a function *getRestaurantReview* that includes several steps of review scraping:
+
+- General main URL for a restaurant by using geolocation ID/name and destination ID/name
+- Get entire review list of the restaurant
+- Get full review text for each review
+
+```{r getRestaurantReview, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(rvest)
+library(lubridate)
+library(stringr)
+library(pbapply)
+library(feather)
+
+getTripReview <- function(url) {
+  download.file(url, destfile = "tmp.dat", quiet = TRUE)
+  
+  reviews <- read_html("tmp.dat") %>%
+    html_nodes(".review-container") 
+
+  id <- reviews %>%
+    html_attr("data-reviewid")
+
+  quote <- reviews %>%
+    html_node(".quote span") %>%
+    html_text()
+
+  rating <- reviews %>%
+    html_node(".ui_bubble_rating") %>%
+    html_attr("class") %>%
+    gsub("ui_bubble_rating bubble_", "", .) %>%
+    as.integer() * 0.1
+
+  date <- reviews %>%
+    html_node(".rating .ratingDate") %>%
+    html_attr("title") %>%
+    strptime("%b %d, %Y") %>%
+    as.character() %>%
+    as.Date()
+
+  return(tibble(id, quote, rating, date))
+}
+
+getTripFullReview <- function(url) {
+  download.file(url, destfile = "tmp.dat", quiet = TRUE)
+
+  page <- read_html("tmp.dat")
+  
+  reviews <- page %>% 
+    html_nodes(
+      xpath='(//div[@class="prw_rup prw_reviews_basic_review_hsx"])'
+      )
+  
+  id <- reviews %>% 
+    html_node(xpath='(div[@class="reviewSelector"])') %>% 
+    html_attr("data-reviewid")
+  
+  reviewtext <- reviews %>% 
+    html_node(".entry") %>% 
+    html_node("p") %>% 
+    html_text(trim=T)
+
+  return(tibble(id, reviewtext))
+}
+
+getRestaurantReview <- function(restaurant) {
+  geo_id <- restaurant[1]
+  destination_id <- restaurant[2]
+  destination_name <- restaurant[3]
+  geo_name <- restaurant[4]
+  
+  cat(destination_name, ': ')
+
+  main_url <- paste0("http://www.tripadvisor.com/",
+                     paste(
+                       "Restaurant_Review",
+                       geo_id,
+                       destination_id,
+                       "Reviews",
+                       destination_name,
+                       geo_name,
+                       sep = "-"
+                     ),
+                     ".html")
+
+  download.file(main_url, destfile = "tmp.dat", quiet = TRUE)
+
+  page <- read_html("tmp.dat")
+  
+  total_page_number <- page %>%
+    html_node(".unified") %>% 
+    html_nodes(".pageNum") %>%
+    html_attr("data-page-number") %>%
+    as.integer() %>%
+    max(1)
+  
+  offset <- 10*(c(1:total_page_number)-1)
+  review_url_list <- paste0("http://www.tripadvisor.com/",
+                            paste("Restaurant_Review",
+                                  geo_id,
+                                  destination_id,
+                                  "Reviews",
+                                  paste0("or", offset),
+                                  destination_name,
+                                  geo_name,
+                                  sep = "-"),
+                            ".html")
+  
+  review_all <- pblapply(review_url_list, getTripReview) %>%
+    bind_rows()
+  
+  review_ids <- review_all$id # all review IDs
+  sample_ids <- review_ids[seq(1,length(review_ids),5)] # 1st, 6th, 11th, 16th ... review IDs
+  
+  cat(length(review_ids), 'reviews\n')
+
+  review_detail_url_list <- paste0("http://www.tripadvisor.com/",
+                                   paste("ShowUserReviews",
+                                         geo_id,
+                                         destination_id,
+                                         "Reviews",
+                                         paste0("r", sample_ids),
+                                         destination_name,
+                                         geo_name,
+                                         sep = "-"),
+                                   ".html")
+  
+  fullreview_all <- pblapply(review_detail_url_list, getTripFullReview) %>%
+    bind_rows()
+  
+  fullreview_all <- review_all %>%
+    inner_join(fullreview_all)
+  
+  return(fullreview_all)
+}
+```
+
+
+By applying *getRestaurantReview* function to all restaurant whose cuisine type is 'Cafe', I scraped all reviews for Cafe's in Highland Park area.
+
+
+```{r scrape_cafe_reviews, echo=TRUE, cache=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(feather)
+
+restaurant_price <- read_feather('restaurant_price.feather')
+restaurant_type <- read_feather('restaurant_type.feather')
+
+cafe_reviews <- restaurant_price %>% 
+  inner_join(restaurant_type %>% 
+               filter(cuisine_types == "Cafe")) %>%
+  apply(1, getRestaurantReview)
+
+cafe_review_counts <- cafe_reviews %>%
+  sapply(function(x) nrow(x))
+
+cafe_df <- restaurant_price %>% 
+  inner_join(restaurant_type %>% 
+               filter(cuisine_types == "Cafe")) %>%
+  mutate(review_count = cafe_review_counts)
+
+cafe_review_df <- cafe_reviews %>%
+  bind_rows() %>%
+  bind_cols(data_frame(destination_id = rep(cafe_df$destination_id, cafe_review_counts)))
+
+write_feather(cafe_df, "cafe_df.feather")
+write_feather(cafe_review_df, "cafe_review_df.feather")
+```
+
+
+
+# Review analysis
+
+Let us analyze what people say about each cafe. 
+
+## Sentence sentiment scores
+
+First I tokenize each review into sentences and calculate sentiment polarity by using *sentimentr* package. Before calculating polarity, I removed cafe name from reviews, because cafe name itself possibly express positive emotion (e.g. "Joy"" Bubble Tea) that is irrelavent to how a reviewer feels. 
+
+```{r review_sentence_sentiment, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidytext)
+library(sentimentr)
+library(stringr)
+library(feather)
+
+cafe_df <- read_feather("cafe_df.feather")
+cafe_review_df <- read_feather("cafe_review_df.feather")
+
+review_sentences <- cafe_review_df %>%
+  select(-quote) %>%
+  unnest_tokens(reviewsentence, reviewtext, token = sentimentr::get_sentences, to_lower = TRUE) %>%
+  inner_join(cafe_df, by="destination_id") %>%
+  mutate(reviewsentence = str_replace_all(reviewsentence, str_to_lower(restaurant_name), "")) %>%
+  bind_cols(sentiment(cafe_review_df$reviewtext))
+```
+
+The sentiment scores do not always make sense. They are calculated based on what kinds of words were used and whether there is negation, but still the calculation does not sufficiently aware of context. For example, "I'll definitely be stopping here" means a reviewer loved the cafe, but the sentiment score is negative; `r sentimentr::sentiment("I'll definitely be stopping")$sentiment` because of word "stopping" is associated with score -0.4 in sentiment dictionary *lexicon::hash_sentiment_jockers*. Also, one review for OQ Coffee Co. says "Sure, Starbucks is much better and employees are always polite.", which means that OQ Coffee Co. was not satisfiable compared to Starbucks. But the sentence shows strong positive sentiment `r sentimentr::sentiment("Sure, Starbucks is much better and employees are always polite.")$sentiment`, because of words "better" and "polite". The sentiment scoring did not understand that the reviewer was talking about another cafe.
+
+Although the sentiment scores do not always represent directionally correct impressions, they still on average.
+```{r avg_polarity_by_rating, echo=TRUE, message=FALSE, warning=FALSE}
+avg_polarity_by_rating <- review_sentences %>%
+  group_by(rating) %>%
+  summarize(
+    n_sentences = n(),
+    avg_sentiment = mean(sentiment)
+    ) %>%
+  ungroup() %>%
+  arrange(-rating)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+avg_polarity_by_rating %>% 
+  mutate(avg_sentiment = round(avg_sentiment,2)) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+The higher review rating scores, the higher average sentence polarity scores from the reviews. So let me take a polarity score from *sentimentr* default setting, although there is an opportunity to improve it.
+
+
+## Extract sentences of interest
+
+Now let me filter words that provides useful context. First I replace each word in a sentence with its lemma to consider variants of a word as the same word (e.g. "stopping" is changed to "stop"). Afterwords, filter sentences that contain a word of interest. Because I am interested in coffee quality, I will filter sentences that include a word "coffee".
+
+```{r review_words, echo=TRUE, message=FALSE, warning=FALSE}
+library(textstem)
+
+review_coffee <- review_sentences %>%
+  select(-destination_name,-geo_name,-price_level,-cuisine_types,-geo_id) %>%
+  mutate(reviewsentence = lemmatize_strings(reviewsentence)) %>%
+  unnest_tokens(reviewword, reviewsentence) %>%
+  filter(reviewword == "coffee") %>%
+  distinct(id, destination_id, sentence_id) %>%
+  inner_join(review_sentences)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+review_coffee %>% 
+  select(restaurant_name, reviewsentence, sentiment) %>%
+  mutate(sentiment = round(sentiment,2)) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+Sentiment scores of the sentences do not seem represent impression only on coffee, because one sentence may have more than one aspect. For example, "great coffee and tea, good music, friendly and competent service, eclectic and rotating art, and good snacks" includes multiple aspects in one sentence: coffee, tea, music, service, art, and snacks. Also the sentiment scores do not always reasonably represent reviewer's impression. "I stopped here for some coffee" is definitely neutral without any emotional and/or judgemental expression, but the sentiment is negatively scored (`r sentimentr::sentiment("I stopped here for some coffee")$sentiment`) because of the word "stopped".
+
+Despite such imperfection, I think the computed sentiment scores provide fairly reasonable average impression on coffee quality for each coffee shop.
+
+```{r avg_coffee_score, echo=TRUE, warning=FALSE, message=FALSE}
+cafe_coffee_sentiment_df <- review_coffee %>% 
+  group_by(destination_id, restaurant_name) %>%
+  summarize(coffee_sentence_count = n(),
+            avg_coffee_sentiment = mean(sentiment)) %>%
+  ungroup() %>%
+  arrange(-avg_coffee_sentiment) %>%
+  mutate(rank_coffee = row_number())
+
+cafe_avg_rating_df <- cafe_review_df %>%
+  group_by(destination_id) %>%
+  summarize(review_count = n(),
+            avg_cafe_rating = mean(rating)) %>%
+  ungroup() %>%
+  arrange(-avg_cafe_rating) %>%
+  mutate(rank_cafe = row_number())
+
+cafe_rating_merged <- cafe_coffee_sentiment_df %>%
+  inner_join(cafe_avg_rating_df)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+cafe_rating_merged %>%
+  select(restaurant_name, rank_coffee, coffee_sentence_count, avg_coffee_sentiment, rank_cafe) %>%
+  mutate(avg_coffee_sentiment = round(avg_coffee_sentiment, 2)) %>%
+  rename(sentence_cn = coffee_sentence_count,
+         sentiment = avg_coffee_sentiment) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+
+
+By looking at average sentiment scores of review sentences that contain word "coffee", `r cafe_rating_merged$restaurant_name[1]` seemed to be the best coffee shop with the highest average sentiment score `r cafe_rating_merged$avg_coffee_sentiment[1]`. This restaurant was actually `r cafe_rating_merged$rank_cafe[1]` based on overall average rating. Does it mean that `r cafe_rating_merged$restaurant_name[1]` has the greatest coffee although some other menu items or aspects are not the greatest? Not necessarily! By looking at number of review sentences that contain word "coffee", `r cafe_rating_merged$restaurant_name[1]` got only `r cafe_rating_merged$coffee_sentence_count[1]` sentence that reviewed their coffee:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+review_coffee %>% 
+  filter(destination_id == cafe_rating_merged$destination_id[1]) %>%
+  select(restaurant_name, reviewsentence, sentiment) %>%
+  mutate(sentiment = round(sentiment, 2)) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+Does it sufficiently support an argument that `r cafe_rating_merged$restaurant_name[1]` is the best coffee place? I believe not. The sentence "steady refills of coffee capped off a nice breakfast" would mean that the service (i.e. refill) was nice, but not necessarily coffee itself.
+
+So, how can we find more believable best coffee place? One quick tweak is using damped means like
+$$\frac{\sum_{s}r_{s} + k\mu}{n + k}$$
+where $n$ is the number of sentence, $r_{s}$ is a sentiment of sentence $s$, $\mu$ represents average sentence sentiment, and $k$ is pre-determined parameter that controls strength of evidence required. Here let us use $k = 5$, which means that we assume 5 sentences with average sentiment are given to every cafe by default, and observed review sentences in TripAdvisor are evidence that each cafe is off from average. Let us apply the same method to explicit rating on cafe as well. For $\mu$, we use observed coffee sentences sentiment average `r mean(review_coffee$sentiment)` and observed cafe rating average `r mean(cafe_review_df$rating)`.
+
+```{r damped_means, echo=TRUE, warning=FALSE, message=FALSE}
+k <- 5
+
+cafe_rating_damped <- cafe_rating_merged %>%
+  mutate(mu_coffee_sentiment = mean(review_coffee$sentiment),
+         mu_cafe_rating = mean(cafe_review_df$rating)) %>%
+  mutate(damped_coffee_sentiment = 
+           (coffee_sentence_count * avg_coffee_sentiment
+            + k * mu_coffee_sentiment) / (coffee_sentence_count + k),
+         damped_cafe_rating = 
+           (review_count * avg_cafe_rating
+            + k * mu_cafe_rating) / (review_count + k)) %>%
+  mutate(rank_coffee = rank(-damped_coffee_sentiment),
+         rank_cafe = rank(-damped_cafe_rating)) %>%
+  arrange(rank_coffee)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cafe_rating_damped %>% 
+  select(restaurant_name, rank_coffee, coffee_sentence_count, damped_coffee_sentiment, rank_cafe) %>%
+  mutate(damped_coffee_sentiment = round(damped_coffee_sentiment, 2)) %>%
+  rename(sentence_cn = coffee_sentence_count,
+         sentiment = damped_coffee_sentiment) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+Hmm.. the ranking seems to get more reasonable, but still cafes with few review sentences related to coffee are highly ranked based on coffee related sentiment, which is questionable. I think it may be because the sample mean of sentiment does not represent underlying true mean sentiment. Maybe the underlying mean sentiment is quite neutral, which is 0. So let me try to recalculated damped means by using $\mu = 0$ for coffee sentiment, and $\mu = 3$ for explicit cafe rating.
+
+
+```{r damped_means_arbitrary, echo=TRUE, warning=FALSE, message=FALSE}
+k <- 5
+
+cafe_rating_damped <- cafe_rating_merged %>%
+  mutate(mu_coffee_sentiment = 0,
+         mu_cafe_rating = 3) %>%
+  mutate(damped_coffee_sentiment = 
+           (coffee_sentence_count * avg_coffee_sentiment
+            + k * mu_coffee_sentiment) / (coffee_sentence_count + k),
+         damped_cafe_rating = 
+           (review_count * avg_cafe_rating
+            + k * mu_cafe_rating) / (review_count + k)) %>%
+  mutate(rank_coffee = rank(-damped_coffee_sentiment),
+         rank_cafe = rank(-damped_cafe_rating)) %>%
+  arrange(rank_coffee)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cafe_rating_damped %>% 
+  select(restaurant_name, rank_coffee, coffee_sentence_count, damped_coffee_sentiment, rank_cafe) %>%
+  mutate(damped_coffee_sentiment = round(damped_coffee_sentiment, 2)) %>%
+  rename(sentence_cn = coffee_sentence_count,
+         sentiment = damped_coffee_sentiment) %>%
+  DT::datatable(rownames=FALSE)
+```
+
+Now the ranking looks more reasonable to me. Top 3 cafes from based on coffee related sentiment are also top 3 cafes based on explicit rating.
+
+- The Coffee House is ranked at topmost. This cafe also shows the highest average TripAdvisor rating both before and after damped means calculation. I have never tried this place, but I think I will definitely try!
+- OQ Coffee Co., my and my wife's favorite place, is second ranked! This place also shows the second highest average TripAdvisor rating both before and after damped means calculation. I know this place is dedicated to coffee, so it makes sense that this cafe is highly ranked regarding coffee quality if TripAdvisor rating is high.
+- Liberty Bagel Cafe is highly ranked even though relatively small number of reviews mentioned coffee. It would mean that this place is not as much popular as other cafes, but people who tried this place were very satisfied. I have never tried this cafe, but I may in future.
+- Brewed Awakening Coffeehouse highly ranked based on coffee related reviews, but overall explicit rating about this cafe is not great. It may mean that coffee quality is good, but some other aspects are not such good. It would be interesting to look at sentiment for other aspects like location and service.
+- Paris Baguette's coffee ranking is not as high as explicit rating ranking. I think this place has great bakery items, but coffee may not as great as their bakery.
+- Dish Cafe is ranked low even though their only one coffee related review got strongly positive score. I do not want to take a risk; my decision would not rely on a single review, so this ranking helps me.
+
+
+## Conclusions
+
+From this analysis, I found two places that I want to try: The Coffee House and Liberty Bagel Cafe. I hope I like those two places; otherwise, I should revise the scoring method later. :)
+
+Damped means are easy quick tweaks, but one downside is that it is very sensitive to parameter $\mu$ as we saw above. The metric would also be sensitive to selection of $k$. There would be more sophisticated methods like lower bound of score confidence interval.
+
+The analysis above was based on hard filter whether a sentence contains word "coffee". But there may be other sentences mentioning "espresso", "cafe latte", "nitro cold brew", etc. Scoring how much relevant each sentence is to coffee would give better picture to score cafes based on coffee quality. Some text mining techniques like word2vec may help.
+
+Also, for sentences that contain multiple aspects, it would be great if we can extract only coffee relevant part. Another possible approach is extract multiple aspects and distribute sentiment score equally so that each aspect (e.g. coffee) get only partial score of sentence sentiment.
+
+
