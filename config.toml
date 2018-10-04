@@ -1,4 +1,4 @@
-baseurl = "http://data-science-for-real-life.netlify.com/"
+baseurl = "https://data-science-for-real-life.netlify.com/"
 languageCode = "en-us"
 title = "Data Science for Real Life"
 # Enable comments by entering your Disqus shortname
