@@ -1,0 +1,292 @@
+---
+title: Matching Algorithm
+author: Youngrok Lee
+date: '2019-03-31'
+slug: matching-algorithm
+categories:
+  - algorithm
+tags:
+  - matching
+  - game theory
+  - labor market
+---
+
+
+
+<p>Labor markets in medical and clinical fields use a <a href="https://www.nobelprize.org/prizes/economic-sciences/2012/summary/">Nobel Prize awarded algorithm</a> to match applicants and sites to provide the best results for both side. Two organizations that provide matching services based on the matching algorithm are <a href="http://www.nrmp.org">National Resident Matching Program(NRMP)</a> and <a href="https://natmatch.com">National Maching Service Inc</a>.</p>
+<p>When interview process is over, applicants are asked to submit Ranked Order Lists(ROLs) of their preference (i.e. ordered site list), and sites are also asked to submit ROLs of there preference (i.e. ordered applicant list). Then NMS will run a matching algorithm to match applicants and sites.</p>
+<p>One of the most important property of the algorithm is that, when both site and applicant provide strictly ordered preferences, the resulting matching must not create “blocking pairs” which means “not matched to one another, who would mutually prefer to be matched to one another than to accept the matching produced”: see <a href="https://doi.org/10.1257/aer.89.4.748">link</a>. The stability of the algorithm’s results have been proved by <a href="https://doi.org/10.1080/00029890.1962.11989827">Gale and Shapley’s “deferred-acceptance” procedure</a> and <a href="https://doi.org/10.1086/261272">Roth’s paper</a>; Nobel Prize was jointly awarded to Shapley and Roth in 2012.</p>
+<p>Because of this “stable matching” property, NMS emphasizes that <strong>“the best strategy for applicants and programs to follow is to make out their lists based on their true preferences.”</strong> In other words, there is no hidden trick for increasing a chance to get more preferrable matching results from each player end, other than submitting her true preferences. Would it be true? Yes, it is! Please find below that I simulated matching scenarios to verify the guidance.</p>
+<div id="scenario" class="section level2">
+<h2>Scenario</h2>
+<p>First, as usual, load <code>tidyverse</code> package.</p>
+<pre class="r"><code>library(tidyverse)</code></pre>
+<p>In my simulation, I assume</p>
+<ul>
+<li>100 sites exist</li>
+<li>1,000 applicants exist</li>
+<li>Each site has 10 open positions</li>
+<li>Each applicant interviews with 20 sites and rank them</li>
+<li>Each site select up to 30 candidates to rank</li>
+</ul>
+<pre class="r"><code>n_site &lt;- 100
+n_applicant &lt;- 1000
+n_site_capacity &lt;- 10
+n_rank_per_applicant &lt;- 20
+n_rank_per_site &lt;- 30
+
+set.seed(123)</code></pre>
+<p>Assume each applicant interviewed with 20 sites and submit rank list of all the site interviewed. In my simulation, I purely randomly generate data for interviewed sites and ranks of sites, although in real world there would be sites that are highly preferred by more applicants.</p>
+<pre class="r"><code>applicant_rank_list &lt;- tibble(
+  applicant_id = rep(1:n_applicant, each = n_rank_per_applicant),
+  applicant_provided_rank = rep(1:n_rank_per_applicant, times = n_applicant)
+) %&gt;%
+  group_by(applicant_id) %&gt;%
+  mutate(site_id = sample.int(n_site, n_rank_per_applicant)) %&gt;%
+  ungroup()</code></pre>
+<p>Below shows a rank order list from the first applicant.</p>
+<pre class="r"><code>applicant_rank_list %&gt;% filter(applicant_id == 1)</code></pre>
+<pre><code>## # A tibble: 20 x 3
+##    applicant_id applicant_provided_rank site_id
+##           &lt;int&gt;                   &lt;int&gt;   &lt;int&gt;
+##  1            1                       1      29
+##  2            1                       2      79
+##  3            1                       3      41
+##  4            1                       4      86
+##  5            1                       5      91
+##  6            1                       6       5
+##  7            1                       7      50
+##  8            1                       8      83
+##  9            1                       9      51
+## 10            1                      10      42
+## 11            1                      11      87
+## 12            1                      12      98
+## 13            1                      13      60
+## 14            1                      14      94
+## 15            1                      15       9
+## 16            1                      16      77
+## 17            1                      17      21
+## 18            1                      18       4
+## 19            1                      19      27
+## 20            1                      20      78</code></pre>
+<p>In my simulation, while applicants submit ranks for all the interviewed sites, each sites submits for only top 30 preferred applicants because they may not want to offer internship to some applicants. (In real world, applicants also may not submit ranks for some sites that they do not want to go. So, interview is from both ends.) I purely randomly generate site’s rank order list, although in real world some applicants may be highly preferred by multiple sites.</p>
+<pre class="r"><code>site_rank_list &lt;- applicant_rank_list %&gt;%
+  select(-applicant_provided_rank) %&gt;%
+  group_by(site_id) %&gt;%
+  mutate(site_provided_rank = sample.int(n(), n())) %&gt;%
+  filter(site_provided_rank &lt;= n_rank_per_site) %&gt;%
+  ungroup() %&gt;%
+  arrange(site_id, site_provided_rank)  </code></pre>
+<p>Below shows a rank order list from the first site.</p>
+<pre class="r"><code>site_rank_list %&gt;% filter(site_id == 1)</code></pre>
+<pre><code>## # A tibble: 30 x 3
+##    applicant_id site_id site_provided_rank
+##           &lt;int&gt;   &lt;int&gt;              &lt;int&gt;
+##  1          912       1                  1
+##  2          965       1                  2
+##  3          862       1                  3
+##  4          120       1                  4
+##  5          534       1                  5
+##  6          352       1                  6
+##  7          361       1                  7
+##  8          499       1                  8
+##  9          169       1                  9
+## 10           91       1                 10
+## # ... with 20 more rows</code></pre>
+<p>Let us combine applicants’ rank order lists and sites’ rank order lists into one data frame.</p>
+<pre class="r"><code>rank_df &lt;- applicant_rank_list %&gt;% 
+  inner_join(site_rank_list, by = c(&quot;applicant_id&quot;, &quot;site_id&quot;))</code></pre>
+</div>
+<div id="matching" class="section level2">
+<h2>Matching</h2>
+<p>I implement a simple iterative algorithm based on explanation on <a href="https://natmatch.com/psychint/algorithm.html">National Matching Service Inc website</a>. My implementation may have some unnecessary computation, but I think it should not make a matching result different. In more details,</p>
+<ol style="list-style-type: decimal">
+<li>Each applicant initially starts with no tentatively assigned site, and each site initially starts with no tentatively assigned applicants.</li>
+<li>For each applicant with no tentatively assigned site, check site’s current <em>tentative</em> assignment from top priority site (i.e. <code>applicant_provided_rank == 1</code>) to last priority site in sequence.
+<ul>
+<li>If less than 10 applicants are tentatively assigned to the site, the matching algorithm tentatively assign current applicant to the site.</li>
+<li>If 10 applicants are tentatively assigned to the site, compare site’s priority of current applicants and the least prioritized applicant who is currently tentatively assigned to the site.
+<ul>
+<li>If current applicant is preferred to currently tentatively assigned applicant, replace the least prioritized tentatively assigned applicant with the current applicant.</li>
+<li>If current applicant is not preferred to already tentatively assigned applicant, check a site of the current applicant’s next priority.</li>
+</ul></li>
+</ul></li>
+<li>Repeat Step 2 until either all applicants are matched or no differences are made in unmatched applicant list.</li>
+</ol>
+<p>Please find R script below:</p>
+<pre class="r"><code>tentative_match_df &lt;- tribble(
+  ~site_id, 
+  ~applicant_id, 
+  ~site_provided_rank, 
+  ~applicant_provided_rank
+)
+
+iter &lt;- 0
+while (TRUE) {
+  iter &lt;- iter + 1
+  
+  # get a list of applicants 
+  # who have not tentatively matched to any site
+  unmatched_applicant_list &lt;- setdiff(
+    sample(c(1:n_applicant), n_applicant),
+    tentative_match_df$applicant_id
+  )
+  
+  for (curr_applicant in unmatched_applicant_list) {
+    # get unmatched applicant&#39;s rank order list to check 
+    # whether the applicant can be tentatively matched to the sites
+    # from the top ranked site to the least preferred site
+    ranked_site_list &lt;- rank_df %&gt;%
+      filter(applicant_id == curr_applicant) %&gt;%
+      arrange(applicant_provided_rank) %&gt;%
+      .$site_id
+    
+    for (curr_site in ranked_site_list) {
+      curr_applicant_site &lt;- rank_df %&gt;%
+        filter(
+          site_id == curr_site,
+          applicant_id == curr_applicant
+        )
+      
+      # check if a site has remaining open capacity to tentatively match
+      # if so, the current applicant will be tentatively matched
+      n_tentative &lt;- tentative_match_df %&gt;%
+        filter(site_id == curr_site) %&gt;%
+        nrow()
+      
+      remaining_capacity &lt;- n_site_capacity - n_tentative
+      
+      if (remaining_capacity &gt; 0) {
+        tentative_match_df &lt;- tentative_match_df %&gt;%
+          bind_rows(curr_applicant_site)
+        break
+      } else {
+        # check if an applicant is higher ranked by the site than
+        # the lowest ranked applicant who is currently tentatively matched.
+        # if so, the current applicant will replace the lowest ranked applicant
+        lowest_ranked_applicant &lt;- tentative_match_df %&gt;%
+          filter(site_id == curr_site) %&gt;%
+          filter(site_provided_rank == max(site_provided_rank))
+        
+        if (curr_applicant_site$site_provided_rank &lt;
+            lowest_ranked_applicant$site_provided_rank) {
+          tentative_match_df &lt;- tentative_match_df %&gt;%
+            anti_join(lowest_ranked_applicant, by = names(.)) %&gt;%
+            bind_rows(curr_applicant_site)
+          break
+        }
+      }
+    }
+  }
+  
+  # if there was no applicants who newly tentatively matched 
+  # in current iteration, then all the match has been done
+  # so current tentative match is the final match
+  new_unmatched_applicant_list &lt;- setdiff(
+    c(1:n_applicant),
+    tentative_match_df$applicant_id
+    )
+  
+  cat(&quot;Iteration&quot;, iter, &quot;:&quot;, 
+      length(new_unmatched_applicant_list), &quot;applicants unmatched\n&quot;)
+  
+  if(setequal(
+    unmatched_applicant_list, 
+    new_unmatched_applicant_list)) break
+}</code></pre>
+<pre><code>## Iteration 1 : 116 applicants unmatched
+## Iteration 2 : 80 applicants unmatched
+## Iteration 3 : 71 applicants unmatched
+## Iteration 4 : 65 applicants unmatched
+## Iteration 5 : 63 applicants unmatched
+## Iteration 6 : 62 applicants unmatched
+## Iteration 7 : 61 applicants unmatched
+## Iteration 8 : 60 applicants unmatched
+## Iteration 9 : 60 applicants unmatched
+## Iteration 10 : 59 applicants unmatched
+## Iteration 11 : 59 applicants unmatched
+## Iteration 12 : 58 applicants unmatched
+## Iteration 13 : 58 applicants unmatched</code></pre>
+<pre class="r"><code>match_df &lt;- tentative_match_df</code></pre>
+<p>For the final matching results, let us first check capacity feasibilities from both applicant and site end:</p>
+<ol style="list-style-type: decimal">
+<li>no applicants matched to more than one site</li>
+</ol>
+<pre class="r"><code># no applicants matched to more than one site
+match_df %&gt;% 
+  group_by(applicant_id) %&gt;% 
+  filter(n() &gt; 1)</code></pre>
+<pre><code>## # A tibble: 0 x 4
+## # Groups:   applicant_id [0]
+## # ... with 4 variables: site_id &lt;int&gt;, applicant_id &lt;int&gt;,
+## #   site_provided_rank &lt;int&gt;, applicant_provided_rank &lt;int&gt;</code></pre>
+<ol start="2" style="list-style-type: decimal">
+<li>no sites matched to more than 10 applicants</li>
+</ol>
+<pre class="r"><code># no sites matched to more than site capacity
+match_df %&gt;%
+  group_by(site_id) %&gt;%
+  filter(n() &gt; n_site_capacity)</code></pre>
+<pre><code>## # A tibble: 0 x 4
+## # Groups:   site_id [0]
+## # ... with 4 variables: site_id &lt;int&gt;, applicant_id &lt;int&gt;,
+## #   site_provided_rank &lt;int&gt;, applicant_provided_rank &lt;int&gt;</code></pre>
+</div>
+<div id="confirm-stable-matching" class="section level2">
+<h2>Confirm stable matching</h2>
+<p>Now let us confirm that there is no blocking pair. For each applicant, none of not-matched sites that the applicant higher ranked than matched site should satisfy one of the following conditions:</p>
+<ol style="list-style-type: decimal">
+<li>site still has remaining opening positions</li>
+<li>site higher ranked the applicant than the lowest ranked applicant who finally matched to the site</li>
+</ol>
+<p>To do so, we first create a data set that has unmatched combination of applicant and site.</p>
+<pre class="r"><code>unmatched_df &lt;- rank_df %&gt;%
+  anti_join(tentative_match_df, by = names(.))</code></pre>
+<p>Then for each applicant, find sites that applicant more preferred than currently matched site.</p>
+<pre class="r"><code>applicant_unmatched_sites &lt;- unmatched_df %&gt;% 
+  left_join(match_df, by = c(&quot;applicant_id&quot;), suffix = c(&quot;&quot;, &quot;_matched&quot;)) %&gt;%
+  filter(
+    is.na(applicant_provided_rank_matched) |
+      (applicant_provided_rank &lt; applicant_provided_rank_matched)
+  )</code></pre>
+<p>Check #1: none of not-matched sites that the applicant higher ranked than matched site still has remaining opening positions.</p>
+<pre class="r"><code>match_df %&gt;%
+  filter(site_id %in% unique(applicant_unmatched_sites$site_id)) %&gt;%
+  group_by(site_id) %&gt;%
+  summarize(n_applicant_matched = n()) %&gt;%
+  mutate(remaining_capacity = n_site_capacity - n_applicant_matched) %&gt;%
+  filter(remaining_capacity &gt; 0)</code></pre>
+<pre><code>## # A tibble: 0 x 3
+## # ... with 3 variables: site_id &lt;int&gt;, n_applicant_matched &lt;int&gt;,
+## #   remaining_capacity &lt;dbl&gt;</code></pre>
+<p>The results show that none of the sites has remaining positions.</p>
+<p>Check #2: none of not-matched sites that the applicant higher ranked than matched site ranked the applicant higher than the lowest ranked applicant who finally matched to the site.</p>
+<p>First, find lowest ranked applicants matched to each site.</p>
+<pre class="r"><code>lowest_ranked_by_site &lt;- match_df %&gt;%
+  group_by(site_id) %&gt;%
+  filter(site_provided_rank == max(site_provided_rank)) %&gt;%
+  ungroup()</code></pre>
+<p>Then find whether there is any case that unmatched applicants were higher ranked by sites than matched applicants.</p>
+<pre class="r"><code>applicant_unmatched_sites %&gt;% inner_join(
+  lowest_ranked_by_site,
+  by = c(&quot;site_id&quot;),
+  suffix = c(&quot;&quot;, &quot;_lowest&quot;)
+) %&gt;%
+  filter(
+    site_provided_rank &lt; site_provided_rank_lowest
+  )</code></pre>
+<pre><code>## # A tibble: 0 x 10
+## # ... with 10 variables: applicant_id &lt;int&gt;,
+## #   applicant_provided_rank &lt;int&gt;, site_id &lt;int&gt;,
+## #   site_provided_rank &lt;int&gt;, site_id_matched &lt;int&gt;,
+## #   site_provided_rank_matched &lt;int&gt;,
+## #   applicant_provided_rank_matched &lt;int&gt;, applicant_id_lowest &lt;int&gt;,
+## #   site_provided_rank_lowest &lt;int&gt;, applicant_provided_rank_lowest &lt;int&gt;</code></pre>
+<p>There were no cases.</p>
+</div>
+<div id="conclusions" class="section level2">
+<h2>Conclusions</h2>
+<p>Based on the simulation results, I can comfortably say that “providing true preference as rank order list” is the best strategy for applicants.</p>
+<p>I like this algorithm because it is simple, intuitive, and makes strategic manipulation be unnecessary. Based on trust on the algorithm, the only thing that applicants need to know is which sites they most want to be matched.</p>
+<p>This matching algorithm may succeed only when game players do not communicate their ROLs. Communicating ranking intention looks a violation of match policies, which makes sense because revealing ROL to other plyaers may make the other players strategically manipulate their ROLs.</p>
+</div>

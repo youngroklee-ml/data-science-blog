@@ -1,0 +1,298 @@
+---
+title: Matching Algorithm
+author: Youngrok Lee
+date: '2019-03-31'
+slug: matching-algorithm
+categories:
+  - algorithm
+tags:
+  - matching
+  - game theory
+  - labor market
+---
+
+
+Labor markets in medical and clinical fields use a [Nobel Prize awarded algorithm](https://www.nobelprize.org/prizes/economic-sciences/2012/summary/) to match applicants and sites to provide the best results for both side. Two organizations that provide matching services based on the matching algorithm are [National Resident Matching Program(NRMP)](http://www.nrmp.org) and [National Maching Service Inc](https://natmatch.com).
+
+When interview process is over, applicants are asked to submit Ranked Order Lists(ROLs) of their preference (i.e. ordered site list), and sites are also asked to submit ROLs of there preference (i.e. ordered applicant list). Then NMS will run a matching algorithm to match applicants and sites. 
+
+One of the most important property of the algorithm is that, when both site and applicant provide strictly ordered preferences, the resulting matching must not create "blocking pairs" which means "not matched to one another, who would mutually prefer to be matched to one another than to accept the matching produced": see [link](https://doi.org/10.1257/aer.89.4.748). The stability of the algorithm's results have been proved by [Gale and Shapley's "deferred-acceptance" procedure](https://doi.org/10.1080/00029890.1962.11989827) and [Roth's paper](https://doi.org/10.1086/261272); Nobel Prize was jointly awarded to Shapley and Roth in 2012.
+
+Because of this "stable matching" property, NMS emphasizes that **"the best strategy for applicants and programs to follow is to make out their lists based on their true preferences."** In other words, there is no hidden trick for increasing a chance to get more preferrable matching results from each player end, other than submitting her true preferences. Would it be true? Yes, it is! Please find below that I simulated matching scenarios to verify the guidance.
+
+
+## Scenario
+
+First, as usual, load `tidyverse` package.
+
+```{r, message = FALSE}
+library(tidyverse)
+```
+
+In my simulation, I assume
+
+- 100 sites exist
+- 1,000 applicants exist
+- Each site has 10 open positions
+- Each applicant interviews with 20 sites and rank them
+- Each site select up to 30 candidates to rank
+
+```{r}
+n_site <- 100
+n_applicant <- 1000
+n_site_capacity <- 10
+n_rank_per_applicant <- 20
+n_rank_per_site <- 30
+
+set.seed(123)
+```
+
+
+Assume each applicant interviewed with 20 sites and submit rank list of all the site interviewed. In my simulation, I purely randomly generate data for interviewed sites and ranks of sites, although in real world there would be sites that are highly preferred by more applicants.
+
+
+```{r}
+applicant_rank_list <- tibble(
+  applicant_id = rep(1:n_applicant, each = n_rank_per_applicant),
+  applicant_provided_rank = rep(1:n_rank_per_applicant, times = n_applicant)
+) %>%
+  group_by(applicant_id) %>%
+  mutate(site_id = sample.int(n_site, n_rank_per_applicant)) %>%
+  ungroup()
+```
+
+Below shows a rank order list from the first applicant.
+
+```{r}
+applicant_rank_list %>% filter(applicant_id == 1)
+```
+
+In my simulation, while applicants submit ranks for all the interviewed sites, each sites submits for only top `r n_rank_per_site` preferred applicants because they may not want to offer internship to some applicants. (In real world, applicants also may not submit ranks for some sites that they do not want to go. So, interview is from both ends.) I purely randomly generate site's rank order list, although in real world some applicants may be highly preferred by multiple sites.
+
+
+```{r}
+site_rank_list <- applicant_rank_list %>%
+  select(-applicant_provided_rank) %>%
+  group_by(site_id) %>%
+  mutate(site_provided_rank = sample.int(n(), n())) %>%
+  filter(site_provided_rank <= n_rank_per_site) %>%
+  ungroup() %>%
+  arrange(site_id, site_provided_rank)  
+```
+
+Below shows a rank order list from the first site.
+
+```{r}
+site_rank_list %>% filter(site_id == 1)
+```
+
+
+Let us combine applicants' rank order lists and sites' rank order lists into one data frame.
+
+
+```{r}
+rank_df <- applicant_rank_list %>% 
+  inner_join(site_rank_list, by = c("applicant_id", "site_id"))
+```
+
+
+## Matching
+
+I implement a simple iterative algorithm based on explanation on [National Matching Service Inc website](https://natmatch.com/psychint/algorithm.html). My implementation may have some unnecessary computation, but I think it should not make a matching result different. In more details,
+
+1. Each applicant initially starts with no tentatively assigned site, and each site initially starts with no tentatively assigned applicants.
+2. For each applicant with no tentatively assigned site, check site's current *tentative* assignment from top priority site (i.e. `applicant_provided_rank == 1`) to last priority site in sequence.
+    - If less than `r n_site_capacity` applicants are tentatively assigned to the site, the matching algorithm tentatively assign current applicant to the site.
+    - If `r n_site_capacity` applicants are tentatively assigned to the site, compare site's priority of current applicants and the least prioritized applicant who is currently tentatively assigned to the site.
+        + If current applicant is preferred to currently tentatively assigned applicant, replace the least prioritized tentatively assigned applicant with the current applicant.
+        + If current applicant is not preferred to already tentatively assigned applicant, check a site of the current applicant's next priority.
+3. Repeat Step 2 until either all applicants are matched or no differences are made in unmatched applicant list.
+
+Please find R script below:
+
+```{r}
+tentative_match_df <- tribble(
+  ~site_id, 
+  ~applicant_id, 
+  ~site_provided_rank, 
+  ~applicant_provided_rank
+)
+
+iter <- 0
+while (TRUE) {
+  iter <- iter + 1
+  
+  # get a list of applicants 
+  # who have not tentatively matched to any site
+  unmatched_applicant_list <- setdiff(
+    sample(c(1:n_applicant), n_applicant),
+    tentative_match_df$applicant_id
+  )
+  
+  for (curr_applicant in unmatched_applicant_list) {
+    # get unmatched applicant's rank order list to check 
+    # whether the applicant can be tentatively matched to the sites
+    # from the top ranked site to the least preferred site
+    ranked_site_list <- rank_df %>%
+      filter(applicant_id == curr_applicant) %>%
+      arrange(applicant_provided_rank) %>%
+      .$site_id
+    
+    for (curr_site in ranked_site_list) {
+      curr_applicant_site <- rank_df %>%
+        filter(
+          site_id == curr_site,
+          applicant_id == curr_applicant
+        )
+      
+      # check if a site has remaining open capacity to tentatively match
+      # if so, the current applicant will be tentatively matched
+      n_tentative <- tentative_match_df %>%
+        filter(site_id == curr_site) %>%
+        nrow()
+      
+      remaining_capacity <- n_site_capacity - n_tentative
+      
+      if (remaining_capacity > 0) {
+        tentative_match_df <- tentative_match_df %>%
+          bind_rows(curr_applicant_site)
+        break
+      } else {
+        # check if an applicant is higher ranked by the site than
+        # the lowest ranked applicant who is currently tentatively matched.
+        # if so, the current applicant will replace the lowest ranked applicant
+        lowest_ranked_applicant <- tentative_match_df %>%
+          filter(site_id == curr_site) %>%
+          filter(site_provided_rank == max(site_provided_rank))
+        
+        if (curr_applicant_site$site_provided_rank <
+            lowest_ranked_applicant$site_provided_rank) {
+          tentative_match_df <- tentative_match_df %>%
+            anti_join(lowest_ranked_applicant, by = names(.)) %>%
+            bind_rows(curr_applicant_site)
+          break
+        }
+      }
+    }
+  }
+  
+  # if there was no applicants who newly tentatively matched 
+  # in current iteration, then all the match has been done
+  # so current tentative match is the final match
+  new_unmatched_applicant_list <- setdiff(
+    c(1:n_applicant),
+    tentative_match_df$applicant_id
+    )
+  
+  cat("Iteration", iter, ":", 
+      length(new_unmatched_applicant_list), "applicants unmatched\n")
+  
+  if(setequal(
+    unmatched_applicant_list, 
+    new_unmatched_applicant_list)) break
+}
+
+match_df <- tentative_match_df
+```
+
+
+For the final matching results, let us first check capacity feasibilities from both applicant and site end:
+
+1. no applicants matched to more than one site
+
+```{r}
+# no applicants matched to more than one site
+match_df %>% 
+  group_by(applicant_id) %>% 
+  filter(n() > 1)
+```
+
+2. no sites matched to more than `r n_site_capacity` applicants
+
+
+```{r}
+# no sites matched to more than site capacity
+match_df %>%
+  group_by(site_id) %>%
+  filter(n() > n_site_capacity)
+```
+
+
+
+## Confirm stable matching
+
+Now let us confirm that there is no blocking pair. For each applicant, none of not-matched sites that the applicant higher ranked than matched site should satisfy one of the following conditions:
+
+1. site still has remaining opening positions
+2. site higher ranked the applicant than the lowest ranked applicant who finally matched to the site
+
+To do so, we first create a data set that has unmatched combination of applicant and site.
+
+```{r}
+unmatched_df <- rank_df %>%
+  anti_join(tentative_match_df, by = names(.))
+```
+
+Then for each applicant, find sites that applicant more preferred than currently matched site.
+
+```{r}
+applicant_unmatched_sites <- unmatched_df %>% 
+  left_join(match_df, by = c("applicant_id"), suffix = c("", "_matched")) %>%
+  filter(
+    is.na(applicant_provided_rank_matched) |
+      (applicant_provided_rank < applicant_provided_rank_matched)
+  )
+```
+
+
+Check #1: none of not-matched sites that the applicant higher ranked than matched site still has remaining opening positions.
+
+
+```{r}
+match_df %>%
+  filter(site_id %in% unique(applicant_unmatched_sites$site_id)) %>%
+  group_by(site_id) %>%
+  summarize(n_applicant_matched = n()) %>%
+  mutate(remaining_capacity = n_site_capacity - n_applicant_matched) %>%
+  filter(remaining_capacity > 0)
+```
+
+The results show that none of the sites has remaining positions.
+
+
+Check #2: none of not-matched sites that the applicant higher ranked than matched site ranked the applicant higher than the lowest ranked applicant who finally matched to the site.
+
+First, find lowest ranked applicants matched to each site. 
+
+```{r}
+lowest_ranked_by_site <- match_df %>%
+  group_by(site_id) %>%
+  filter(site_provided_rank == max(site_provided_rank)) %>%
+  ungroup()
+```
+
+Then find whether there is any case that unmatched applicants were higher ranked by sites than matched applicants.
+
+```{r}
+applicant_unmatched_sites %>% inner_join(
+  lowest_ranked_by_site,
+  by = c("site_id"),
+  suffix = c("", "_lowest")
+) %>%
+  filter(
+    site_provided_rank < site_provided_rank_lowest
+  )
+```
+
+There were no cases.
+
+
+## Conclusions
+
+Based on the simulation results, I can comfortably say that "providing true preference as rank order list" is the best strategy for applicants.
+
+I like this algorithm because it is simple, intuitive, and makes strategic manipulation be unnecessary. Based on trust on the algorithm, the only thing that applicants need to know is which sites they most want to be matched. 
+
+This matching algorithm may succeed only when game players do not communicate their ROLs. Communicating ranking intention looks a violation of match policies, which makes sense because revealing ROL to other plyaers may make the other players strategically manipulate their ROLs. 
+
+
